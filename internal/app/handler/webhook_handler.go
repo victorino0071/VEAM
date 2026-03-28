@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"io/ioutil"
+	"log/slog"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type WebhookHandler struct {
@@ -21,36 +25,44 @@ func NewWebhookHandler(repo port.Repository, accessToken string) *WebhookHandler
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Verificação Criptográfica (Auth Token)
+	// 1. Inicia Rastreamento (OpenTelemetry)
+	tracer := otel.Tracer("webhook-handler")
+	ctx, span := tracer.Start(r.Context(), "ReceiveWebhook")
+	defer span.End()
+
+	// 2. W3C Context Injection (Metadata Carrier)
+	metadata := make(map[string]string)
+	propagator := otel.GetTextMapPropagator()
+	propagator.Inject(ctx, propagation.MapCarrier(metadata))
+
+	// 3. Verificação Criptográfica
 	token := r.Header.Get("asaas-access-token")
 	if token != h.accessToken {
+		slog.WarnContext(ctx, "Tentativa de acesso não autorizada")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// 2. Leitura do Payload Bruto
+	// 4. Leitura do Payload
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
+		slog.ErrorContext(ctx, "Erro ao ler body", "error", err)
 		http.Error(w, "Can't read body", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	// 3. ID do Webhook extraído (idealmente do header ou metadados da requisição se possível)
-	// Como o Asaas não envia o ID no header, vamos salvar com um ID único gerado.
-	// A idempotência será garantida pela Unique Constraint no worker ou via ID do Asaas no Inbox.
-	webhookID := r.Header.Get("asaas-event-id") // Exemplo: Asaas envia um ID de evento
+	webhookID := r.Header.Get("asaas-event-id")
 
-	// 4. Ingestão Cega: Salvamento síncrono do payload bruto sem parsing.
-	inboxEvent := entity.NewInboxEvent("id-servidor", webhookID, "Asaas", body)
-	if err := h.repo.SaveInboxEvent(r.Context(), inboxEvent); err != nil {
-		// Se falhar por Unique Constraint (Duplicado), o repositório retornará nil ou erro específico.
-		// ON CONFLICT DO NOTHING garante que não falhe, apenas não insira.
+	// 5. Ingestão Cega + Metadata JSONB
+	inboxEvent := entity.NewInboxEvent("id-servidor", webhookID, "Asaas", body, metadata)
+	if err := h.repo.SaveInboxEvent(ctx, inboxEvent); err != nil {
+		slog.ErrorContext(ctx, "Erro ao persistir Inbox", "error", err)
 		http.Error(w, "Erro ao persistir", http.StatusInternalServerError)
 		return
 	}
 
-	// 5. Resposta O(1)
+	slog.InfoContext(ctx, "Webhook persistido no Inbox (Mastery)", "webhook_id", webhookID)
 	w.WriteHeader(http.StatusAccepted)
 	fmt.Fprintf(w, "Payload persistido com sucesso.")
 }

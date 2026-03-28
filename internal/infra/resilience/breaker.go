@@ -3,9 +3,12 @@ package resilience
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 	"asaas_framework/internal/domain/port"
+	"log/slog"
 )
 
 const (
@@ -15,21 +18,25 @@ const (
 )
 
 type Config struct {
-	FailureThreshold float64       // τ (tau) - taxa de falha permitida (ex: 0.5)
-	ResetTimeout     time.Duration // t_timeout - tempo para ir de OPEN para HALF_OPEN
-	MinRequests      int           // Mínimo de requisições para abrir o disjuntor
+	FailureThreshold float64       // τ (tau) - ex: 0.5 (50%)
+	ResetTimeout     time.Duration // t_timeout
+	Alpha            float64       // α (alpha) - Coeficiente de reatividade (ex: 0.2)
+	MinRequests      int           // Mínimo de amostras para reatividade total
 }
 
 type circuitBreaker struct {
-	config      Config
-	mu          sync.RWMutex
-	state       string
-	failures    int
-	total       int
-	lastFailure time.Time
+	config     Config
+	mu         sync.RWMutex
+	state      string
+	pFailure   uint64        // P_t (Atomic float64 via math.Float64bits)
+	requestCount uint64      // Mínimo para aquecimento
+	lastTransition time.Time
 }
 
 func NewCircuitBreaker(config Config) port.CircuitBreaker {
+	if config.Alpha == 0 {
+		config.Alpha = 0.2 // Default reativo
+	}
 	return &circuitBreaker{
 		config: config,
 		state:  StateClosed,
@@ -37,14 +44,14 @@ func NewCircuitBreaker(config Config) port.CircuitBreaker {
 }
 
 func (cb *circuitBreaker) Allow(ctx context.Context) (bool, error) {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+	cb.mu.RLock()
+	state := cb.state
+	lastT := cb.lastTransition
+	cb.mu.RUnlock()
 
-	if cb.state == StateOpen {
-		if time.Since(cb.lastFailure) > cb.config.ResetTimeout {
-			cb.state = StateHalfOpen
-			cb.failures = 0
-			cb.total = 0
+	if state == StateOpen {
+		if time.Since(lastT) > cb.config.ResetTimeout {
+			cb.transition(ctx, StateHalfOpen)
 			return true, nil
 		}
 		return false, errors.New("circuit breaker is open")
@@ -54,39 +61,65 @@ func (cb *circuitBreaker) Allow(ctx context.Context) (bool, error) {
 }
 
 func (cb *circuitBreaker) RecordResult(ctx context.Context, err error) error {
+	var result float64
+	if err != nil {
+		result = 1.0
+	} else {
+		result = 0.0
+	}
+
+	// Cálculo da EWMA Atômica: P_new = (1-α)P_old + α(Result)
+	for {
+		oldBits := atomic.LoadUint64(&cb.pFailure)
+		oldP := math.Float64frombits(oldBits)
+		
+		newP := (1-cb.config.Alpha)*oldP + cb.config.Alpha*result
+		newBits := math.Float64bits(newP)
+
+		if atomic.CompareAndSwapUint64(&cb.pFailure, oldBits, newBits) {
+			break
+		}
+	}
+
+	atomic.AddUint64(&cb.requestCount, 1)
+
+	// Análise de Transição baseada em P(F)
+	currentP := math.Float64frombits(atomic.LoadUint64(&cb.pFailure))
+	totalReq := atomic.LoadUint64(&cb.requestCount)
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	cb.total++
-	if err != nil {
-		cb.failures++
-		cb.lastFailure = time.Now()
-	}
-
-	failureRate := float64(cb.failures) / float64(cb.total)
-
-	// Lógica Matemática: S_{t+1}
-	if cb.total >= cb.config.MinRequests && failureRate > cb.config.FailureThreshold {
-		cb.state = StateOpen
+	if totalReq >= uint64(cb.config.MinRequests) && currentP > cb.config.FailureThreshold {
+		cb.setState(ctx, StateOpen)
 	} else if cb.state == StateHalfOpen && err == nil {
-		// Sucesso no HalfOpen -> Volta para Closed (Caso Contrário)
-		cb.reset()
-	} else if cb.state == StateOpen && time.Since(cb.lastFailure) > cb.config.ResetTimeout {
-		// Opcional: atualização passiva de estado se necessário, 
-		// mas o Allow() já cuida disso.
+		cb.setState(ctx, StateClosed)
+		// Opcional: Reset de P no sucesso total para acelerar recuperação
+		atomic.StoreUint64(&cb.pFailure, 0)
 	}
 
 	return nil
+}
+
+func (cb *circuitBreaker) transition(ctx context.Context, next string) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.setState(ctx, next)
+}
+
+func (cb *circuitBreaker) setState(ctx context.Context, next string) {
+	if cb.state != next {
+		slog.WarnContext(ctx, "Circuit Breaker Transição (Mastery)", 
+			"from", cb.state, 
+			"to", next,
+			"p_failure", math.Float64frombits(atomic.LoadUint64(&cb.pFailure)))
+		cb.state = next
+		cb.lastTransition = time.Now()
+	}
 }
 
 func (cb *circuitBreaker) GetState(ctx context.Context) (string, error) {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
 	return cb.state, nil
-}
-
-func (cb *circuitBreaker) reset() {
-	cb.state = StateClosed
-	cb.failures = 0
-	cb.total = 0
 }

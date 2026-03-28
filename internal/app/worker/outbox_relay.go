@@ -3,17 +3,20 @@ package worker
 import (
 	"context"
 	"asaas_framework/internal/domain/port"
-	"fmt"
+	"log/slog"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type OutboxRelay struct {
 	repo    port.Repository
 	gateway port.GatewayAdapter
 	breaker port.CircuitBreaker
-	baseT   time.Duration // T_base
-	maxT    time.Duration // T_max
-	k       int           // Tentativas vazias consecutivas
+	baseT   time.Duration
+	maxT    time.Duration
+	k       int
 	quit    chan struct{}
 }
 
@@ -31,18 +34,16 @@ func NewOutboxRelay(repo port.Repository, gateway port.GatewayAdapter, breaker p
 
 func (r *OutboxRelay) Start(ctx context.Context) {
 	for {
-		// 1. Verifica Circuit Breaker antes de agir
+		// Verificamos o disjuntor reativo antes de qualquer operação
 		allowed, _ := r.breaker.Allow(ctx)
 		if !allowed {
-			fmt.Println("[OutboxRelay] Breaker aberto: aguardando...")
+			slog.WarnContext(ctx, "[OutboxRelay] Breaker aberto: pausando envio", "retry_after", r.baseT)
 			time.Sleep(r.baseT)
 			continue
 		}
 
-		// 2. Processa o lote
-		processed := r.processBatch(ctx)
+		processed := r.consumeBatch(ctx)
 
-		// 3. Calcula T_poll (Backoff Exponencial)
 		if processed == 0 {
 			r.k++
 		} else {
@@ -65,20 +66,30 @@ func (r *OutboxRelay) Start(ctx context.Context) {
 	}
 }
 
-func (r *OutboxRelay) processBatch(ctx context.Context) int {
-	events, err := r.repo.FetchNextPendingOutbox(ctx, 10)
+func (r *OutboxRelay) consumeBatch(ctx context.Context) int {
+	// PHASE A: Claim (Transação Curta + Commit Imediato)
+	events, err := r.repo.ClaimOutboxEvents(ctx, 10)
 	if err != nil || len(events) == 0 {
 		return 0
 	}
 
+	// PHASE B: Execute Outside DB Transaction (Network I/O)
 	for _, event := range events {
-		// Simula envio
-		err := r.gateway.RefundTransaction(ctx, event.ID) // Dummy action
-		r.breaker.RecordResult(ctx, err)
-		
-		if err == nil {
-			now := time.Now()
-			event.ProcessedAt = &now
+		// Extração de Contexto W3C
+		propagator := otel.GetTextMapPropagator()
+		carrier := propagation.MapCarrier(event.Metadata)
+		workerCtx := propagator.Extract(ctx, carrier)
+
+		slog.InfoContext(workerCtx, "[OutboxRelay] Enviando evento externo (Phase B)", "event_id", event.ID)
+
+		// Chamada de gateway com Circuit Breaker Reativo
+		err := r.gateway.RefundTransaction(workerCtx, event.ID)
+		r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
+
+		// PHASE C: Finalize (Nova Transação Curta para Status)
+		success := (err == nil)
+		if err := r.repo.FinalizeOutboxEvent(ctx, event.ID, success); err != nil {
+			slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Finalize)", "error", err, "id", event.ID)
 		}
 	}
 

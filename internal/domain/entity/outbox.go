@@ -1,48 +1,51 @@
 package entity
 
-import (
-	"time"
-)
+import "time"
 
-// OutboxEvent representa um evento que deve ser enviado para um sistema externo.
 type OutboxEvent struct {
 	ID          string
+	Metadata    map[string]string // JSONB: W3C Trace Context + Baggage
 	EventType   string
 	Payload     []byte
-	Metadata    map[string]string
+	Status      string
 	RetryCount  int
-	ProcessedAt *time.Time
 	CreatedAt   time.Time
+	ProcessedAt *time.Time
 }
 
-// InboxEvent representa um evento bruto recebido de um webhook externo que precisa ser processado.
-type InboxEvent struct {
-	ID          string
-	ExternalID  string // ID original do gateway (ex: Asaas)
-	Source      string // Origem do evento (ex: "Asaas")
-	Payload     []byte
-	Status      string // "PENDING", "PROCESSED", "FAILED"
-	RetryCount  int
-	ProcessedAt *time.Time
-	CreatedAt   time.Time
-}
-
-func NewOutboxEvent(id, eventType string, payload []byte) *OutboxEvent {
+func NewOutboxEvent(id, eventType string, payload []byte, metadata map[string]string) *OutboxEvent {
 	return &OutboxEvent{
-		ID:        id,
-		EventType: eventType,
-		Payload:   payload,
-		CreatedAt: time.Now(),
-	}
-}
-
-func NewInboxEvent(id, externalID, source string, payload []byte) *InboxEvent {
-	return &InboxEvent{
 		ID:         id,
-		ExternalID: externalID,
-		Source:     source,
+		Metadata:   metadata,
+		EventType:  eventType,
 		Payload:    payload,
 		Status:     "PENDING",
 		CreatedAt:  time.Now(),
+		RetryCount: 0,
+	}
+}
+
+type InboxEvent struct {
+	ID          string
+	Metadata    map[string]string // JSONB: W3C Trace Context + Baggage
+	ExternalID  string            // ID vindo do Asaas
+	EventType   string
+	Payload     []byte
+	Status      string
+	RetryCount  int
+	CreatedAt   time.Time
+	ProcessedAt *time.Time
+}
+
+func NewInboxEvent(id, externalID, eventType string, payload []byte, metadata map[string]string) *InboxEvent {
+	return &InboxEvent{
+		ID:         id,
+		ExternalID: externalID,
+		Metadata:   metadata,
+		EventType:  eventType,
+		Payload:    payload,
+		Status:     "PENDING",
+		CreatedAt:  time.Now(),
+		RetryCount: 0,
 	}
 }
