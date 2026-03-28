@@ -17,10 +17,6 @@ type Repository interface {
 	FetchNextPendingInbox(ctx context.Context, limit int) ([]*entity.InboxEvent, error)
 	FetchNextPendingOutbox(ctx context.Context, limit int) ([]*entity.OutboxEvent, error)
 	
-	// Metodos de Travamento (Postgres Advisory Locks)
-	AcquireAdvisoryLock(ctx context.Context, key string) (bool, error)
-	ReleaseAdvisoryLock(ctx context.Context, key string) error
-
 	// ExecuteInTransaction envolve operações em uma transação ACID.
 	ExecuteInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
