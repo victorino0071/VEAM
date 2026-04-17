@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"asaas_framework/internal/app/service"
 	"asaas_framework/internal/app/worker"
 	"asaas_framework/internal/domain/port"
 	"asaas_framework/internal/domain/registry"
 	"asaas_framework/internal/infra/repository"
+	"asaas_framework/internal/infra/repository/migration"
 	"asaas_framework/internal/infra/resilience"
 	"asaas_framework/internal/infra/telemetry"
 	"asaas_framework/internal/app/handler"
@@ -23,6 +25,7 @@ type Engine struct {
 	Consumer *worker.InboxConsumer
 	Relay    *worker.OutboxRelay
 	Breaker  port.CircuitBreaker
+	db       *sql.DB
 }
 
 // NewEngine inicializa a fundação do motor sobre uma conexão Postgres.
@@ -49,12 +52,21 @@ func NewEngine(db *sql.DB) *Engine {
 		Consumer: consumer,
 		Relay:    relay,
 		Breaker:  cb,
+		db:       db,
 	}
 }
 
 // WithTelemetry atacha a observabilidade no motor.
 func (e *Engine) WithTelemetry(serviceName string) *Engine {
 	_, _ = telemetry.InitTelemetry(serviceName)
+	return e
+}
+
+// WithAutoMigrate executa a sincronização do esquema do banco de dados.
+func (e *Engine) WithAutoMigrate() *Engine {
+	if err := migration.EnsureSchema(e.db); err != nil {
+		panic(fmt.Sprintf("[Engine] Falha na migração automática: %v", err))
+	}
 	return e
 }
 

@@ -27,9 +27,9 @@ func main() {
 
 	// 1. Conexão com Banco de Dados
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		getEnv("DB_HOST", ""), getEnv("DB_PORT", ""), getEnv("DB_USER", ""), 
+		getEnv("DB_HOST", ""), getEnv("DB_PORT", ""), getEnv("DB_USER", ""),
 		getEnv("DB_PASS", ""), getEnv("DB_NAME", ""))
-	
+
 	db, err := sql.Open("postgres", dsn)
 	if err != nil || db.Ping() != nil {
 		slog.Error("Falha crítica no banco de dados", "error", err)
@@ -39,6 +39,7 @@ func main() {
 
 	// 2. Setup do Motor via Builder Pattern (Phase 4)
 	engine := app.NewEngine(db).
+		WithAutoMigrate().
 		WithTelemetry("payment-engine").
 		RegisterProvider("asaas", gateway.NewAdapter(providerKey, providerBase))
 
@@ -66,13 +67,13 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop 
+	<-stop
 
 	slog.Info("Encerrando graciosamente...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	
-	cancel() 
+
+	cancel()
 	server.Shutdown(shutdownCtx)
 	slog.Info("Aplicação encerrada com sucesso.")
 }
