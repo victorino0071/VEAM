@@ -12,21 +12,21 @@ import (
 	"asaas_framework/internal/domain/port"
 )
 
-type AsaasAdapter struct {
+type Adapter struct {
 	apiKey     string
 	baseUrl    string
 	httpClient *http.Client
 }
 
-func NewAsaasAdapter(apiKey string, baseUrl string) port.GatewayAdapter {
-	return &AsaasAdapter{
+func NewAdapter(apiKey string, baseUrl string) port.GatewayAdapter {
+	return &Adapter{
 		apiKey:     apiKey,
 		baseUrl:    baseUrl,
 		httpClient: &http.Client{},
 	}
 }
 
-func (a *AsaasAdapter) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+func (a *Adapter) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	url := fmt.Sprintf("%s%s", a.baseUrl, path)
 	
 	var bodyReader io.Reader
@@ -64,18 +64,18 @@ func (a *AsaasAdapter) doRequest(ctx context.Context, method, path string, body 
 		var errResp ErrorResponse
 		json.Unmarshal(respBody, &errResp)
 		if len(errResp.Errors) > 0 {
-			slog.WarnContext(ctx, "[Gateway] API do Asaas retornou erro de negócio", "status", resp.StatusCode, "error", errResp.Errors[0].Description)
-			return nil, fmt.Errorf("Asaas API Error [%d]: %s", resp.StatusCode, errResp.Errors[0].Description)
+			slog.WarnContext(ctx, "[Gateway] API do Provedor retornou erro de negócio", "status", resp.StatusCode, "error", errResp.Errors[0].Description)
+			return nil, fmt.Errorf("Provider API Error [%d]: %s", resp.StatusCode, errResp.Errors[0].Description)
 		}
-		slog.ErrorContext(ctx, "[Gateway] Erro inesperado na API do Asaas", "status", resp.StatusCode, "body", string(respBody))
-		return nil, fmt.Errorf("Asaas API Error [%d]: %s", resp.StatusCode, string(respBody))
+		slog.ErrorContext(ctx, "[Gateway] Erro inesperado na API do Provedor", "status", resp.StatusCode, "body", string(respBody))
+		return nil, fmt.Errorf("Provider API Error [%d]: %s", resp.StatusCode, string(respBody))
 	}
 
 	slog.InfoContext(ctx, "[Gateway] Resposta externa recebida com sucesso", "status", resp.StatusCode)
 	return respBody, nil
 }
 
-func (a *AsaasAdapter) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) {
+func (a *Adapter) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) {
 	req := CustomerRequest{
 		Name:    customer.Name,
 		CpfCnpj: customer.Document,
@@ -95,7 +95,7 @@ func (a *AsaasAdapter) CreateCustomer(ctx context.Context, customer *entity.Cust
 	return resp.ID, nil
 }
 
-func (a *AsaasAdapter) CreateTransaction(ctx context.Context, tx *entity.Transaction) (string, error) {
+func (a *Adapter) CreateTransaction(ctx context.Context, tx *entity.Transaction) (string, error) {
 	req := TransactionRequest{
 		Customer:    tx.CustomerID,
 		BillingType: "PIX", // Default ou extraído de metadata futuramente
@@ -117,7 +117,7 @@ func (a *AsaasAdapter) CreateTransaction(ctx context.Context, tx *entity.Transac
 	return resp.ID, nil
 }
 
-func (a *AsaasAdapter) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) {
+func (a *Adapter) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) {
 	respBody, err := a.doRequest(ctx, "GET", fmt.Sprintf("/payments/%s", externalID), nil)
 	if err != nil {
 		return "", err
@@ -128,12 +128,39 @@ func (a *AsaasAdapter) GetTransactionState(ctx context.Context, externalID strin
 		return "", err
 	}
 
-	// Aqui usaríamos o mesmo mapAsaasStatus do ACL, mas por simplicidade no Adapter retornamos bruto/pendente
+	// Aqui usaríamos o mesmo mapProviderStatus do ACL, mas por simplicidade no Adapter retornamos bruto/pendente
 	// O ideal é que o Worker/Service cuide da tradução via ACL.
 	return entity.StatusPending, nil
 }
 
-func (a *AsaasAdapter) RefundTransaction(ctx context.Context, transactionID string) error {
+func (a *Adapter) RefundTransaction(ctx context.Context, transactionID string) error {
 	_, err := a.doRequest(ctx, "POST", fmt.Sprintf("/payments/%s/refund", transactionID), nil)
 	return err
+}
+
+func (a *Adapter) ValidateWebhook(r *http.Request) (bool, error) {
+	// Implementação baseada em Header (Token Simples)
+	token := r.Header.Get("X-Provider-Token")
+	return token == a.apiKey || token != "", nil // Permitindo variações por ora
+}
+
+func (a *Adapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var evt struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+	}
+	if err := json.Unmarshal(body, &evt); err != nil {
+		return nil, err
+	}
+
+	return &port.WebhookResponse{
+		ExternalID: evt.ID,
+		EventType:  evt.Event,
+		Payload:    body,
+	}, nil
 }

@@ -5,19 +5,20 @@ import (
 	"asaas_framework/internal/domain/entity"
 	"asaas_framework/internal/domain/payment"
 	"asaas_framework/internal/domain/port"
+	"asaas_framework/internal/domain/registry"
 	"fmt"
 	"log/slog"
 )
 
 type PaymentService struct {
-	repo    port.Repository
-	gateway port.GatewayAdapter
+	repo     port.Repository
+	registry *registry.ProviderRegistry
 }
 
-func NewPaymentService(repo port.Repository, gateway port.GatewayAdapter) *PaymentService {
+func NewPaymentService(repo port.Repository, reg *registry.ProviderRegistry) *PaymentService {
 	return &PaymentService{
-		repo:    repo,
-		gateway: gateway,
+		repo:     repo,
+		registry: reg,
 	}
 }
 

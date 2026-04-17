@@ -3,6 +3,7 @@ package port
 import (
 	"context"
 	"asaas_framework/internal/domain/entity"
+	"net/http"
 )
 
 // GatewayAdapter define a interface para comunicação com o provedor de pagamento (Ex: Asaas)
@@ -11,6 +12,17 @@ type GatewayAdapter interface {
 	CreateTransaction(ctx context.Context, transaction *entity.Transaction) (string, error)
 	GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error)
 	RefundTransaction(ctx context.Context, transactionID string) error
+
+	// Webhook Methods (Universal ACL)
+	ValidateWebhook(r *http.Request) (bool, error)
+	TranslateWebhook(r *http.Request) (*WebhookResponse, error)
+}
+
+// WebhookResponse normaliza o que vem da rua para o que o motor entende.
+type WebhookResponse struct {
+	ExternalID string
+	EventType  string
+	Payload    []byte
 }
 
 // IdempotencyStore define a interface para armazenamento e verificação de chaves de idempotência.

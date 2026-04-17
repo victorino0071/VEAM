@@ -96,13 +96,14 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 }
 
 func (c *InboxConsumer) processEvent(ctx context.Context, event *entity.InboxEvent) bool {
-	var webhook acl.AsaasWebhookDTO
+	var webhook acl.WebhookDTO
 	if err := json.Unmarshal(event.Payload, &webhook); err != nil {
 		slog.ErrorContext(ctx, "[InboxConsumer] Falha na tradução de Payload JSON (ACL)", "error", err, "id", event.ID)
 		return false
 	}
 
-	tx, err := webhook.Payment.ToDomain()
+	providerID := event.Metadata["provider_id"]
+	tx, err := webhook.Payment.ToDomain(providerID)
 	if err != nil {
 		slog.ErrorContext(ctx, "[InboxConsumer] Falha no mapeamento para entidade de Domínio", "error", err, "id", event.ID)
 		return false

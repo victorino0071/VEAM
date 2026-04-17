@@ -3,9 +3,7 @@ package handler
 import (
 	"asaas_framework/internal/domain/entity"
 	"asaas_framework/internal/domain/port"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log/slog"
 	"net/http"
 
@@ -15,14 +13,16 @@ import (
 )
 
 type WebhookHandler struct {
-	repo        port.Repository
-	accessToken string
+	repo       port.Repository
+	adapter    port.GatewayAdapter
+	providerID string
 }
 
-func NewWebhookHandler(repo port.Repository, accessToken string) *WebhookHandler {
+func NewWebhookHandler(repo port.Repository, adapter port.GatewayAdapter, providerID string) *WebhookHandler {
 	return &WebhookHandler{
-		repo:        repo,
-		accessToken: accessToken,
+		repo:       repo,
+		adapter:    adapter,
+		providerID: providerID,
 	}
 }
 
@@ -39,42 +39,29 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	
 	// Validação de Versão Cega (Antifragilidade)
 	metadata["schema_version"] = "v1"
-	// Idealmente r.Header.Get("Date") ou o campo equivalente do Asaas
-	metadata["asaas_timestamp"] = r.Header.Get("Date")
+	metadata["provider_id"] = h.providerID
+	// Idealmente r.Header.Get("Date") ou o campo equivalente do Provedor
+	metadata["provider_timestamp"] = r.Header.Get("Date")
 
-	// 3. Verificação Criptográfica
-	token := r.Header.Get("asaas-access-token")
-	if token != h.accessToken {
-		slog.WarnContext(ctx, "Tentativa de acesso não autorizada")
+	// 3. Verificação de Autorização Delegada (Universal ACL)
+	ok, err := h.adapter.ValidateWebhook(r)
+	if err != nil || !ok {
+		slog.WarnContext(ctx, "Tentativa de acesso não autorizada ou falha na validação", "error", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// 4. Leitura do Payload
-	body, err := ioutil.ReadAll(r.Body)
+	// 4. Normalização do Payload Delegada
+	payload, err := h.adapter.TranslateWebhook(r)
 	if err != nil {
-		slog.ErrorContext(ctx, "Erro ao ler body", "error", err)
-		http.Error(w, "Can't read body", http.StatusBadRequest)
+		slog.ErrorContext(ctx, "Erro na normalização do webhook", "error", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
-	// Parse mínimo para extrair id e event
-	var asaasEvt struct {
-		ID    string `json:"id"`
-		Event string `json:"event"`
-	}
-	_ = json.Unmarshal(body, &asaasEvt)
-
-	webhookID := asaasEvt.ID
-	if webhookID == "" {
-		webhookID = r.Header.Get("asaas-event-id") // Fallback
-	}
-	
-	eventType := asaasEvt.Event
-	if eventType == "" {
-		eventType = "UNKNOWN"
-	}
+	webhookID := payload.ExternalID
+	eventType := payload.EventType
+	body := payload.Payload
 
 	// Previne panic silencioso do google/uuid (vamos usar Must)
 	eventUUID := uuid.New().String()
