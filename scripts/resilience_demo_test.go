@@ -1,9 +1,9 @@
 package scripts
 
 import (
-	"asaas_framework/internal/domain/entity"
-	"asaas_framework/internal/infra/resilience"
-	"asaas_framework/pkg/testing/mock"
+	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/payment-engine/internal/core/resilience"
+	"github.com/Victor/payment-engine/adapters/mockprovider"
 	"context"
 	"fmt"
 	"testing"
