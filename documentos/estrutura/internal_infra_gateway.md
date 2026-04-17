@@ -1,36 +1,36 @@
-# Documentação de Estrutura: Gateway HTTP
+# Documentação de Estrutura: Gateway & Adaptadores (Outbound APIs)
 **Caminho:** `internal/infra/gateway`
 
-A pasta `gateway` contém os "Adaptadores" reais que saem do nosso servidor e trafegam pela internet para bater em APIs de terceiros. Seu principal componente é o `AsaasAdapter`.
+A pasta `gateway` contém os Adaptadores que permitem ao motor se comunicar com o mundo exterior. Através de um contrato unificado, o sistema pode alternar entre provedores de pagamento mantendo a mesma lógica central.
 
 ---
 
-## 1. O que é um Adapter (Adaptador)?
-*( **Conceito Técnico - Adapter Pattern:** Na engenharia de software, um adaptador é um pedaço de código que pega os dados da forma que o nosso sistema interno espera e "traduz" / "embala" para o formato que um sistema externo exige. Pense nele mecânicamente como um adaptador de tomada universal: ele conecta o plug do nosso Domínio no padrão da parede do Asaas. )*
+## 1. O Conceito de Multi-Gateway (Agnosticismo)
+Diferente de sistemas rígidos, o Payment Engine utiliza o padrão **Adapter Pattern** em conjunto com um **Provider Registry**.
+-   **Adaptador:** Implementa a interface `port.GatewayAdapter`, traduzindo requisições do Domínio para o JSON específico da API (ex: Asaas, Stripe).
+-   **Registry:** Funciona como um catálogo de conexões ativas. Durante o boot, registramos os adaptadores desejados e o motor resolve dinamicamente qual deles usar baseado no `ProviderID` da transação.
 
 ---
 
-## 2. Visão Geral do `asaas_adapter.go`
+## 2. Visão Geral do `adapter.go`
 
-O arquivo contém a estrutura básica para a comunicação HTTP com a provedora financeira.
+O adaptador é o componente de execução de rede. Ele é responsável por:
 
-#### `type AsaasAdapter struct`
-Armazena credenciais ativas para invocar recursos da rede:
-*   `apiKey`: A chave de acesso criptográfica para autenticação na API do Asaas.
-*   `baseUrl`: O endereço raiz da API (ex: `https://sandbox.asaas.com/api/v3`).
-*   `httpClient`: *( **Conceito Técnico - http.Client:** Diferente de abrir uma conexão crua na unha, cliente HTTP injetável em Go possui pools nativos de reaproveitamento TCP e servem para forçar timeouts seguros para evitar prender as threads do nosso App se a internet do Asaas cair )*
+*   **Autenticação:** Gerenciar chaves de API e tokens de acesso.
+*   **Tráfego Seguro:** Realizar chamadas HTTP com timeouts e políticas de retry monitoradas pelo OpenTelemetry.
+*   **Universal Webhook ACL:** Validar assinaturas digitais de webhooks recebidos e converter o payload bruto para o formato que a ACL entende.
 
 ---
 
-## 3. A Estrutura de Retransmissão Real (Fase Finalizada)
-A `Phase 3` de desenvolvimento foi concluída, e o sistema não usa mais "Mocks" (imitações falsas de banco/transações). O Gateway é uma estrutura de tráfego pesado operando conexões ativas na internet.
+## 3. Resiliência e Isolamento
 
-#### A Coesão dos `asaas_dtos.go`
-Enquanto o App usa as `entities` de Domínio abstratas e a camada ACL valida webhooks, o *Gateway de Saída* tem seus próprios DTOs (Objetos de Transferência de Dados).
-Exemplo: `TransactionRequest`. Eles não contém lógicas, são apenas *structs* rasas preenchidas com as formatações (`json:"billingType"`) exatamente iguais à documentação web oficial da provedora Asaas.
+#### Integração com o Circuit Breaker
+O adaptador não trabalha sozinho. Toda chamada de rede passa pelo **Circuit Breaker** (Disjuntor). Se o gateway externo (ex: Asaas Sandbox) começar a falhar ou apresentar latência alta, o adaptador é "cortado" temporariamente pelo disjuntor para evitar o empilhamento de requisições no nosso servidor.
 
-#### Assinaturas Reais do `asaas_adapter.go`:
-Todas as assinaturas forçadas por `port.GatewayAdapter` operam requisições massivas seguras:
-1.  **`RefundTransaction(ctx context.Context, transactionID string) error`**: Ele aloca o ID da transação em uma URL Restful nativa (`https://sandbox.asaas.com/api/v3/payments/{id}/refund`). Usa o `http.NewRequestWithContext` para criar pacotes TCP com limites rígidos de _timeout_.
-2.  **Autorização Imbutível**: Sempre injeta no Header o `'access_token': apiKey`, lido nativamente via `os.Getenv` no Boot principal do `main.go`.
-3.  **Tratamento Nativo de Erros 400+**: O cliente HTTP oficial do GoLang considera "Sucesso" sempre que a conexão não caiu. A nossa inteligência aqui faz a auditoria se o `resp.StatusCode` é `>= 400`, criando retornos de erros formatados com decodificação avançada do Payload de resposta do Asaas (`ErrorResponse` DTO) para que os Circuit Breakers possam trabalhar matemática sob-erros catalogados.
+#### Tratamento de Erros de Domínio
+O adaptador mapeia erros HTTP genéricos (400, 401, 429) em constantes que o nosso sistema entende. Isso permite que os Workers tratem de forma diferente um "Erro de Cartão Recusado" (Erro de Domínio - definitivo) de um "Erro de Timeout" (Erro de Rede - reentrável).
+
+---
+
+> [!TIP]
+> **Adicionando Novo Provedor:** Para adicionar suporte ao Stripe ou Mercado Pago, basta criar uma nova pasta em `gateway/`, implementar os métodos da interface `GatewayAdapter` e registrá-lo no builder principal no `main.go`.

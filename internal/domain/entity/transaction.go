@@ -27,16 +27,18 @@ type Transaction struct {
 	DueDate       time.Time
 	PaymentDate   *time.Time
 	ConfirmedDate *time.Time
+	ProviderID    string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
-func NewTransaction(id, customerID string, amount float64, description string, dueDate time.Time) *Transaction {
+func NewTransaction(id, customerID, providerID string, amount float64, description string, dueDate time.Time) *Transaction {
 	return &Transaction{
 		ID:          id,
 		CustomerID:  customerID,
+		ProviderID:  providerID,
 		Amount:      amount,
-		Currency:    "BRL", // Default para asaas
+		Currency:    "BRL",
 		Status:      StatusPending,
 		Description: description,
 		DueDate:     dueDate,

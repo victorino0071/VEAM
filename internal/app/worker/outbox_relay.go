@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"asaas_framework/internal/domain/port"
+	"asaas_framework/internal/domain/registry"
 	"log/slog"
 	"time"
 
@@ -11,24 +12,24 @@ import (
 )
 
 type OutboxRelay struct {
-	repo    port.Repository
-	gateway port.GatewayAdapter
-	breaker port.CircuitBreaker
-	baseT   time.Duration
-	maxT    time.Duration
-	k       int
-	quit    chan struct{}
+	repo     port.Repository
+	registry *registry.ProviderRegistry
+	breaker  port.CircuitBreaker
+	baseT    time.Duration
+	maxT     time.Duration
+	k        int
+	quit     chan struct{}
 }
 
-func NewOutboxRelay(repo port.Repository, gateway port.GatewayAdapter, breaker port.CircuitBreaker) *OutboxRelay {
+func NewOutboxRelay(repo port.Repository, reg *registry.ProviderRegistry, breaker port.CircuitBreaker) *OutboxRelay {
 	return &OutboxRelay{
-		repo:    repo,
-		gateway: gateway,
-		breaker: breaker,
-		baseT:   500 * time.Millisecond,
-		maxT:    30 * time.Second,
-		k:       0,
-		quit:    make(chan struct{}),
+		repo:     repo,
+		registry: reg,
+		breaker:  breaker,
+		baseT:    500 * time.Millisecond,
+		maxT:     30 * time.Second,
+		k:        0,
+		quit:     make(chan struct{}),
 	}
 }
 
@@ -99,25 +100,33 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 		txID := string(event.Payload)
 		var err error
 
-		switch event.EventType {
-		case "REFUND_STARTED":
-			// Chamada de gateway isolada com Circuit Breaker Reativo
-			err = r.gateway.RefundTransaction(workerCtx, txID)
-			r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
-			
-			if err != nil {
-				slog.WarnContext(workerCtx, "[OutboxRelay] Falha ao solicitar estorno no Asaas", "error", err, "tx_id", txID)
-			} else {
-				slog.InfoContext(workerCtx, "[OutboxRelay] Estorno solicitado e confirmado pelo Gateway", "tx_id", txID)
+		// Recupera o adaptador via Registry usando o rastro do metadados
+		providerID := event.Metadata["provider_id"]
+		gateway, regErr := r.registry.Get(providerID)
+		if regErr != nil {
+			slog.ErrorContext(workerCtx, "[OutboxRelay] Falha ao resolver gateway", "error", regErr, "id", event.ID, "provider_id", providerID)
+			err = regErr
+		} else {
+			switch event.EventType {
+			case "REFUND_STARTED":
+				// Chamada de gateway isolada com Circuit Breaker Reativo
+				err = gateway.RefundTransaction(workerCtx, txID)
+				r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
+				
+				if err != nil {
+					slog.WarnContext(workerCtx, "[OutboxRelay] Falha ao solicitar estorno no Provedor", "error", err, "tx_id", txID)
+				} else {
+					slog.InfoContext(workerCtx, "[OutboxRelay] Estorno solicitado e confirmado pelo Gateway", "tx_id", txID)
+				}
+
+			case "PAYMENT_CONFIRMED", "PAYMENT_FAILED", "PAYMENT_ANOMALY":
+				// Aqui é onde você informaria outro microserviço do seu sistema ou enviaria um email!
+				slog.InfoContext(workerCtx, "[OutboxRelay] Evento do Domínio publicado em barramento interno (No-Op Gateway)", "event_type", event.EventType, "tx_id", txID)
+				err = nil
+
+			default:
+				slog.InfoContext(workerCtx, "[OutboxRelay] Evento ignorado pelo Relay", "event_type", event.EventType)
 			}
-
-		case "PAYMENT_CONFIRMED", "PAYMENT_FAILED", "PAYMENT_ANOMALY":
-			// Aqui é onde você informaria outro microserviço do seu sistema ou enviaria um email!
-			slog.InfoContext(workerCtx, "[OutboxRelay] Evento do Domínio publicado em barramento interno (No-Op Gateway)", "event_type", event.EventType, "tx_id", txID)
-			err = nil
-
-		default:
-			slog.InfoContext(workerCtx, "[OutboxRelay] Evento ignorado pelo Relay", "event_type", event.EventType)
 		}
 
 		// PHASE C: Finalize (Nova Transação Curta para Status)
