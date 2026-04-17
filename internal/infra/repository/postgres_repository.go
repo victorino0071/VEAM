@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"asaas_framework/internal/domain/entity"
 )
 
@@ -16,19 +17,29 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 
 // Ingestão com ON CONFLICT (sqlc-style)
 func (r *PostgresRepository) SaveInboxEvent(ctx context.Context, event *entity.InboxEvent) error {
+	metadataJSON, err := json.Marshal(event.Metadata)
+	if err != nil {
+		return err
+	}
+
 	query := `
 		INSERT INTO inbox (id, external_id, event_type, payload, metadata)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (external_id) DO UPDATE 
 		SET payload = EXCLUDED.payload, metadata = EXCLUDED.metadata, updated_at = NOW()
 		WHERE inbox.updated_at < NOW();`
-	_, err := r.db.ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, event.Metadata)
+	_, err = r.db.ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, metadataJSON)
 	return err
 }
 
 func (r *PostgresRepository) SaveOutboxEvent(ctx context.Context, event *entity.OutboxEvent) error {
+	metadataJSON, err := json.Marshal(event.Metadata)
+	if err != nil {
+		return err
+	}
+
 	query := `INSERT INTO outbox (id, event_type, payload, metadata) VALUES ($1, $2, $3, $4)`
-	_, err := r.db.ExecContext(ctx, query, event.ID, event.EventType, event.Payload, event.Metadata)
+	_, err = r.db.ExecContext(ctx, query, event.ID, event.EventType, event.Payload, metadataJSON)
 	return err
 }
 
@@ -54,9 +65,12 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 	var events []*entity.InboxEvent
 	for rows.Next() {
 		e := &entity.InboxEvent{}
-		// Scan mapping depending on entity struct
-		err := rows.Scan(&e.ID, &e.ExternalID, &e.EventType, &e.Payload, &e.Metadata, &e.Status, &e.RetryCount, &e.CreatedAt)
+		var metadataJSON []byte
+		err := rows.Scan(&e.ID, &e.ExternalID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &e.CreatedAt)
 		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
 			return nil, err
 		}
 		events = append(events, e)
@@ -87,8 +101,12 @@ func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) (
 	var events []*entity.OutboxEvent
 	for rows.Next() {
 		e := &entity.OutboxEvent{}
-		err := rows.Scan(&e.ID, &e.EventType, &e.Payload, &e.Metadata, &e.Status, &e.RetryCount, &e.CreatedAt)
+		var metadataJSON []byte
+		err := rows.Scan(&e.ID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &e.CreatedAt)
 		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
 			return nil, err
 		}
 		events = append(events, e)

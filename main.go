@@ -19,22 +19,25 @@ import (
 	"asaas_framework/internal/infra/resilience"
 	"asaas_framework/internal/infra/telemetry"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Driver Postgres
 )
 
 func main() {
-	// 1. Configurações via Environment
-	// Nota: Em um ambiente real, poderíamos usar github.com/joho/godotenv aqui.
-	dbHost := getEnv("DB_HOST", "localhost")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "postgres")
-	dbPass := getEnv("DB_PASS", "postgres")
-	dbName := getEnv("DB_NAME", "asaas_db")
-	
+	// Carrega o arquivo .env se ele existir
+	_ = godotenv.Load()
+
 	asaasKey := getEnv("ASAAS_API_KEY", "")
 	asaasBase := getEnv("ASAAS_BASE_URL", "https://sandbox.asaas.com/api/v3")
 	webhookToken := getEnv("WEBHOOK_ACCESS_TOKEN", "SuperSecretToken")
 	httpPort := getEnv("HTTP_PORT", "8080")
+
+	// Configurações do Banco extraídas do Environment
+	dbHost := getEnv("DB_HOST", "")
+	dbPort := getEnv("DB_PORT", "")
+	dbUser := getEnv("DB_USER", "")
+	dbPass := getEnv("DB_PASS", "")
+	dbName := getEnv("DB_NAME", "")
 
 	// 2. Inicializa Telemetria (OpenTelemetry + slog)
 	shutdownTele, err := telemetry.InitTelemetry("asaas-framework")
@@ -45,7 +48,7 @@ func main() {
 	defer shutdownTele(context.Background())
 
 	// 3. Conexão com Banco de Dados
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", 
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		dbHost, dbPort, dbUser, dbPass, dbName)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -62,7 +65,7 @@ func main() {
 	// 4. Inicializa Infraestrutura (Adapters)
 	repo := repository.NewPostgresRepository(db)
 	gatewayAdapter := gateway.NewAsaasAdapter(asaasKey, asaasBase)
-	
+
 	// Circuit Breaker reativo para o Outbox
 	cbConfig := resilience.Config{
 		FailureThreshold: 0.5,
@@ -89,7 +92,7 @@ func main() {
 
 	// 7. Configura Servidor HTTP e Handlers
 	webhookHandler := handler.NewWebhookHandler(repo, webhookToken)
-	
+
 	mux := http.NewServeMux()
 	mux.Handle("/webhooks/asaas", webhookHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +126,7 @@ func main() {
 
 	// Para os Workers primeiro
 	cancel() // Cancela o ctx global
-	
+
 	// Encerra o servidor HTTP
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("Erro ao encerrar servidor HTTP", "error", err)

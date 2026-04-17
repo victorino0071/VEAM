@@ -3,11 +3,13 @@ package handler
 import (
 	"asaas_framework/internal/domain/entity"
 	"asaas_framework/internal/domain/port"
+	"encoding/json"
 	"fmt"
-	"net/http"
 	"io/ioutil"
 	"log/slog"
+	"net/http"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -57,10 +59,28 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	webhookID := r.Header.Get("asaas-event-id")
+	// Parse mínimo para extrair id e event
+	var asaasEvt struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+	}
+	_ = json.Unmarshal(body, &asaasEvt)
+
+	webhookID := asaasEvt.ID
+	if webhookID == "" {
+		webhookID = r.Header.Get("asaas-event-id") // Fallback
+	}
+	
+	eventType := asaasEvt.Event
+	if eventType == "" {
+		eventType = "UNKNOWN"
+	}
+
+	// Previne panic silencioso do google/uuid (vamos usar Must)
+	eventUUID := uuid.New().String()
 
 	// 5. Ingestão Cega + Metadata JSONB
-	inboxEvent := entity.NewInboxEvent("id-servidor", webhookID, "Asaas", body, metadata)
+	inboxEvent := entity.NewInboxEvent(eventUUID, webhookID, eventType, body, metadata)
 	if err := h.repo.SaveInboxEvent(ctx, inboxEvent); err != nil {
 		slog.ErrorContext(ctx, "Erro ao persistir Inbox", "error", err)
 		http.Error(w, "Erro ao persistir", http.StatusInternalServerError)

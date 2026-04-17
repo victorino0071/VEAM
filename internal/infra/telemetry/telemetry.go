@@ -40,7 +40,7 @@ func InitTelemetry(serviceName string) (func(context.Context) error, error) {
 		res, resErr := resource.Merge(
 			resource.Default(),
 			resource.NewWithAttributes(
-				semconv.SchemaURL,
+				"", // Deixa em branco para herdar/evitar conflito de SchemaURL
 				semconv.ServiceName(serviceName),
 			),
 		)

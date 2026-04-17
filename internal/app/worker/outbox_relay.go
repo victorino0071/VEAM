@@ -84,6 +84,8 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 		return 0
 	}
 
+	slog.InfoContext(ctx, "[OutboxRelay] Lote de eventos de saída reivindicado", "count", len(events))
+
 	// PHASE B: Execute Outside DB Transaction (Network I/O)
 	for _, event := range events {
 		// Extração de Contexto W3C
@@ -93,9 +95,30 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 
 		slog.InfoContext(workerCtx, "[OutboxRelay] Enviando evento externo (Phase B)", "event_id", event.ID)
 
-		// Chamada de gateway com Circuit Breaker Reativo
-		err := r.gateway.RefundTransaction(workerCtx, event.ID)
-		r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
+		// O Payload contém o ID da Transação do Domínio
+		txID := string(event.Payload)
+		var err error
+
+		switch event.EventType {
+		case "REFUND_STARTED":
+			// Chamada de gateway isolada com Circuit Breaker Reativo
+			err = r.gateway.RefundTransaction(workerCtx, txID)
+			r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
+			
+			if err != nil {
+				slog.WarnContext(workerCtx, "[OutboxRelay] Falha ao solicitar estorno no Asaas", "error", err, "tx_id", txID)
+			} else {
+				slog.InfoContext(workerCtx, "[OutboxRelay] Estorno solicitado e confirmado pelo Gateway", "tx_id", txID)
+			}
+
+		case "PAYMENT_CONFIRMED", "PAYMENT_FAILED", "PAYMENT_ANOMALY":
+			// Aqui é onde você informaria outro microserviço do seu sistema ou enviaria um email!
+			slog.InfoContext(workerCtx, "[OutboxRelay] Evento do Domínio publicado em barramento interno (No-Op Gateway)", "event_type", event.EventType, "tx_id", txID)
+			err = nil
+
+		default:
+			slog.InfoContext(workerCtx, "[OutboxRelay] Evento ignorado pelo Relay", "event_type", event.EventType)
+		}
 
 		// PHASE C: Finalize (Nova Transação Curta para Status)
 		if err == nil {

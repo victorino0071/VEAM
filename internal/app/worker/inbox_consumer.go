@@ -67,6 +67,8 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 		return 0
 	}
 
+	slog.InfoContext(ctx, "[InboxConsumer] Lote de eventos reivindicado", "count", len(events))
+
 	// PHASE B: Execute Outside DB Transaction
 	for _, event := range events {
 		// 1. Extrai W3C Context do Metadata JSONB
@@ -94,19 +96,21 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 }
 
 func (c *InboxConsumer) processEvent(ctx context.Context, event *entity.InboxEvent) bool {
-	var dto acl.AsaasPaymentDTO
-	if err := json.Unmarshal(event.Payload, &dto); err != nil {
-		slog.ErrorContext(ctx, "Falha na tradução (ACL)", "error", err)
+	var webhook acl.AsaasWebhookDTO
+	if err := json.Unmarshal(event.Payload, &webhook); err != nil {
+		slog.ErrorContext(ctx, "[InboxConsumer] Falha na tradução de Payload JSON (ACL)", "error", err, "id", event.ID)
 		return false
 	}
 
-	tx, err := dto.ToDomain()
+	tx, err := webhook.Payment.ToDomain()
 	if err != nil {
-		slog.ErrorContext(ctx, "Falha no mapeamento de domínio", "error", err)
+		slog.ErrorContext(ctx, "[InboxConsumer] Falha no mapeamento para entidade de Domínio", "error", err, "id", event.ID)
 		return false
 	}
 
-	err = c.service.ProcessPaymentWithMetadata(ctx, tx.ID, event.Metadata, tx.Status)
+	slog.InfoContext(ctx, "[InboxConsumer] Evento traduzido com sucesso para Domínio", "id", tx.ID, "target_status", tx.Status)
+
+	err = c.service.ProcessPaymentWithMetadata(ctx, tx, event.Metadata, tx.Status)
 	if err != nil {
 		slog.WarnContext(ctx, "Falha no domínio", "error", err)
 		return false

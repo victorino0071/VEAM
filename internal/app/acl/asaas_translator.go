@@ -5,7 +5,13 @@ import (
 	"time"
 )
 
-// AsaasPaymentDTO representa o contrato externo da API/Webhook do Asaas.
+// AsaasWebhookDTO representa o payload raiz enviado pelo Asaas via Webhook.
+type AsaasWebhookDTO struct {
+	Event   string          `json:"event"`
+	Payment AsaasPaymentDTO `json:"payment"`
+}
+
+// AsaasPaymentDTO representa o contrato de pagamento da API/Webhook do Asaas.
 type AsaasPaymentDTO struct {
 	ID                string  `json:"id"`
 	Customer          string  `json:"customer"`

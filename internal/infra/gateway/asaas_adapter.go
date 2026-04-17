@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"asaas_framework/internal/domain/entity"
 	"asaas_framework/internal/domain/port"
@@ -45,8 +46,11 @@ func (a *AsaasAdapter) doRequest(ctx context.Context, method, path string, body 
 	req.Header.Set("access_token", a.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
+	slog.InfoContext(ctx, "[Gateway] Efetuando requisição externa", "method", method, "url", url)
+
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
+		slog.ErrorContext(ctx, "[Gateway] Falha crítica de transporte HTTP", "error", err, "url", url)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -60,11 +64,14 @@ func (a *AsaasAdapter) doRequest(ctx context.Context, method, path string, body 
 		var errResp ErrorResponse
 		json.Unmarshal(respBody, &errResp)
 		if len(errResp.Errors) > 0 {
+			slog.WarnContext(ctx, "[Gateway] API do Asaas retornou erro de negócio", "status", resp.StatusCode, "error", errResp.Errors[0].Description)
 			return nil, fmt.Errorf("Asaas API Error [%d]: %s", resp.StatusCode, errResp.Errors[0].Description)
 		}
+		slog.ErrorContext(ctx, "[Gateway] Erro inesperado na API do Asaas", "status", resp.StatusCode, "body", string(respBody))
 		return nil, fmt.Errorf("Asaas API Error [%d]: %s", resp.StatusCode, string(respBody))
 	}
 
+	slog.InfoContext(ctx, "[Gateway] Resposta externa recebida com sucesso", "status", resp.StatusCode)
 	return respBody, nil
 }
 

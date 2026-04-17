@@ -3,6 +3,8 @@ package payment
 import (
 	"asaas_framework/internal/domain/entity"
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 // PaymentFSM define a interface para a máquina de estados (FSM).
@@ -32,18 +34,22 @@ func (f *paymentFSM) TransitionTo(next entity.PaymentStatus) (*entity.OutboxEven
 
 	switch f.tx.Status {
 	case entity.StatusPending:
-		if next == entity.StatusPaid {
-			f.tx.Status = entity.StatusPaid
-			return entity.NewOutboxEvent("event-id", "PAYMENT_CONFIRMED", []byte("payload"), f.metadata), nil
+		if next == entity.StatusPaid || next == entity.StatusReceived || next == entity.StatusConfirmed {
+			f.tx.Status = next
+			return entity.NewOutboxEvent(uuid.New().String(), "PAYMENT_CONFIRMED", []byte(f.tx.ID), f.metadata), nil
 		}
 		if next == entity.StatusFailed {
 			f.tx.Status = entity.StatusFailed
-			return entity.NewOutboxEvent("event-id", "PAYMENT_FAILED", []byte("payload"), f.metadata), nil
+			return entity.NewOutboxEvent(uuid.New().String(), "PAYMENT_FAILED", []byte(f.tx.ID), f.metadata), nil
 		}
-	case entity.StatusPaid:
+	case entity.StatusPaid, entity.StatusReceived, entity.StatusConfirmed:
 		if next == entity.StatusRefundInitiated {
 			f.tx.Status = entity.StatusRefundInitiated
-			return entity.NewOutboxEvent("event-id", "REFUND_STARTED", []byte("payload"), f.metadata), nil
+			return entity.NewOutboxEvent(uuid.New().String(), "REFUND_STARTED", []byte(f.tx.ID), f.metadata), nil
+		}
+		if next == entity.StatusConfirmed || next == entity.StatusPaid {
+			f.tx.Status = next
+			return nil, nil // Ignora upgrades silenciosos na FSM
 		}
 	}
 
@@ -51,5 +57,5 @@ func (f *paymentFSM) TransitionTo(next entity.PaymentStatus) (*entity.OutboxEven
 	// Em vez de explodir com Exception e travar a DLQ imediatamente, convertemos
 	// para um estado de ANOMALY para triagem manual/assistida, mas aceitamos a transição internamente.
 	f.tx.Status = entity.StatusAnomaly
-	return entity.NewOutboxEvent("event-id", "PAYMENT_ANOMALY", []byte(fmt.Sprintf("Invalid transition attempted: %s -> %s", f.tx.Status, next)), f.metadata), nil
+	return entity.NewOutboxEvent(uuid.New().String(), "PAYMENT_ANOMALY", []byte(fmt.Sprintf("Invalid transition attempted: %s -> %s", f.tx.Status, next)), f.metadata), nil
 }
