@@ -22,17 +22,15 @@ Armazena credenciais ativas para invocar recursos da rede:
 
 ---
 
-## 3. Mockagem e Fases de Implementação
-Nesta etapa de concepção inicial, o `AsaasAdapter` atua utilizando uma técnica de estandes táticos chamada de **"Mock"**.
+## 3. A Estrutura de Retransmissão Real (Fase Finalizada)
+A `Phase 3` de desenvolvimento foi concluída, e o sistema não usa mais "Mocks" (imitações falsas de banco/transações). O Gateway é uma estrutura de tráfego pesado operando conexões ativas na internet.
 
-####  O que é Mocking?
-*( **Conceito Técnico - Mock:** Mockar código é criar imitações baratas de funções caras. Num ambiente isolado, é inviável e perigoso bater num cartão de crédito de verdade e invocar a API de um banco real apenas para testar se nossa lógica local no FSM funciona. O Mock finge conectar na nuvem, escreve uma linha no console dizendo "Criei o Pagamento", devolve uma resposta perfeitamente parecida com a que a API retornaria (ex: ID `pay_mock_456`) e prossegue, tudo em zero milissegundos. )*
+#### A Coesão dos `asaas_dtos.go`
+Enquanto o App usa as `entities` de Domínio abstratas e a camada ACL valida webhooks, o *Gateway de Saída* tem seus próprios DTOs (Objetos de Transferência de Dados).
+Exemplo: `TransactionRequest`. Eles não contém lógicas, são apenas *structs* rasas preenchidas com as formatações (`json:"billingType"`) exatamente iguais à documentação web oficial da provedora Asaas.
 
-#### Assinaturas Implementadas:
-Todas as assinaturas forçadas por `port.GatewayAdapter` operam sob mocking atrelados ao terminal:
-1.  **`CreateCustomer`**: Devolve o placeholder `"cus_mock_123"`.
-2.  **`CreateTransaction`**: Devolve o placeholder `"pay_mock_456"`.
-3.  **`GetTransactionState`**: Simula que um pacote aleatório bateu na parede e voltou dizendo `entity.StatusPending`.
-4.  **`RefundTransaction`**: Imprime alerta cego sem efeitos.
-
-Em rodadas futuras no ambiente de Code Real (`Phase 3`), todas essas funções utilizarão a interface do Client para empacotar o JSON final com POST/GET reais via internet.
+#### Assinaturas Reais do `asaas_adapter.go`:
+Todas as assinaturas forçadas por `port.GatewayAdapter` operam requisições massivas seguras:
+1.  **`RefundTransaction(ctx context.Context, transactionID string) error`**: Ele aloca o ID da transação em uma URL Restful nativa (`https://sandbox.asaas.com/api/v3/payments/{id}/refund`). Usa o `http.NewRequestWithContext` para criar pacotes TCP com limites rígidos de _timeout_.
+2.  **Autorização Imbutível**: Sempre injeta no Header o `'access_token': apiKey`, lido nativamente via `os.Getenv` no Boot principal do `main.go`.
+3.  **Tratamento Nativo de Erros 400+**: O cliente HTTP oficial do GoLang considera "Sucesso" sempre que a conexão não caiu. A nossa inteligência aqui faz a auditoria se o `resp.StatusCode` é `>= 400`, criando retornos de erros formatados com decodificação avançada do Payload de resposta do Asaas (`ErrorResponse` DTO) para que os Circuit Breakers possam trabalhar matemática sob-erros catalogados.

@@ -36,11 +36,12 @@ Este método obedece à assinatura padrão do Go para servir requisições Web. 
 *   **O que faz e por que:** É um escudo contra invasores de API. Ele busca um header bem específico (`"asaas-access-token"`) e compara se ele é igual ao esperado do nosso provedor confiável.
 *   **Fail Fast:** Se for diferente, ele imediatamente aborta a operação reusando um HTTP puro (Retornando erro de "Unauthorized") e impedindo ataques de DOS de persistência.
 
-#### Passo 4: Leitura do Payload e Identificador Único
-*   **O que faz:** Captura de fato os "bytes" não convertidos contidos no Content-Body (`ioutil.ReadAll`) e um _header_ valioso `asaas-event-id`
-*   **Fail Fast:** Aborta a execução caso ocorra um erro de serialização do body (garantindo que se enviaram lixo, nós não iremos nem guardar o lixo).
+#### Passo 4: Leitura do Payload e Extração de Identificadores
+*   **O que faz:** Captura de fato os "bytes" brutos contidos no Content-Body (`ioutil.ReadAll`).
+*   **Fail Fast:** Aborta a execução caso ocorra um erro de serialização do body (garantindo que se enviaram lixo irrecuperável, não engasgamos o handler).
+*   **A Abstração Mínima:** Em vez de tentar carregar o Domínio (transação) aqui na porta, o handler faz um "unmarshal mínimo" anônimo apenas para descobrir as chaves vitais `"id"` (ID do evento webhook) e `"event"` (Ex: PAYMENT_CREATED) do JSON disparado, e então devolve a responsabilidade pra frente usando esses designadores como identificadores externos de segurança.
 
 #### Passo 5: Ingestão Cega "Blind Ingestion" (Mastery Pattern)
-*   **O que faz e por que:** Cria a nossa entidade `InboxEvent`. Passa tudo mastigado. E manda nosso `repo.SaveInboxEvent()`.
+*   **O que faz e por que:** Instancia a `InboxEvent` gerando um UUID legítimo universal (`uuid.New().String()`), anexa os bytes crus e chaves lidas no passo 4, e dispara `repo.SaveInboxEvent()`.
 *   **A grande sacada:** Nós NÃO tentamos chamar a anti-corruption layer aqui. NÃO validamos se a transação existe no domínio. E muito menos abrimos transações complexas de domínio no banco. Nós apenas salvamos os Bytes recebidos do Asaas no Database e encerramos a request com o HTTP status Code de sucesso (ex: StatusAccepted 202).
 *   **Objetivo de negócio:** A requisição demorou apenas o tempo da verificação de autoridade + tempo do Insert na tebela `inbox`. Portanto um pico absurdo com 1 milhoes de pagamentos simultâneos vao apenas escrever rapidamente na coluna os bytes, e voltar na hora, liberando as theads web do framework de colapsar. Não existe chance de "Timeout" de endpoint, salvando dinheiro.

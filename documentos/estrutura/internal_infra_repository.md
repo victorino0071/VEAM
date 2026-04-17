@@ -9,11 +9,17 @@ A pasta `repository` é onde se reside todo o poder duro de alvenaria do Framewo
 
 ### A) Ingestão Assíncrona e Prevenção de Duplicatas (Idempotência Nativa)
 `SaveInboxEvent(ctx, event)` 
-Possui um código base focado altamente no _sqlc_ engine. Aqui vemos o comando extremo: `INSERT INTO inbox (...) VALUES (...) ON CONFLICT DO NOTHING`.
+Possui um código base focado altamente em resiliência estrutural. Aqui vemos o comando extremo: `INSERT INTO inbox (...) VALUES (...) ON CONFLICT (external_id) DO UPDATE SET ... WHERE ... < NOW()`.
 
-*( **Conceito Técnico - ON CONFLICT DO NOTHING (UPSERT):** Nos banco de dados de alta perfomance moderna (como Postgres), essa flag serve para gerenciar concorrência bruta "Upserting". Imagine que o banco Asaas enlouqueceu e atirou 3 Webhooks simultâneos referenciando o mesmo pagamento pra nós. Quando eles engarrafarem tentando injetar o mesmo "Event ID" ao mesmo momento no BD, o banco vai permitir apenas que o 1º crie fisicamente o espaço, avisando aos outros dois processos silenciosamente para "Fazer(DO)" absolutamente "Nada(NOTHING)", ao inves de cuspir exceções e matar e fechar nossa aplicação. É resiliência no lado do dado e não no código. )*
+*( **Conceito Técnico - ON CONFLICT DO UPDATE SET (UPSERT):** Nos bancos de dados de alta performance modernos, essa flag serve para gerenciar concorrência bruta. Imagine que a provedora Asaas enlouqueceu e atirou 3 Webhooks simultâneos referenciando o mesmo pagamento pra nós. O sistema usará o ID intrínseco do evento (a flag `external_id`) como barreira de segurança única. O primeiro a pisar ali crava o payload na tabela. Qualquer pulso atrasado ou clone que chegar posteriormente será forçado a apenas "Atualizar" a linha da tabela substituindo o Payload, prevenindo duplicações matemáticas e a poluição das chaves do banco. )*
 
----
+#### Mapping Lógico do `jsonb`
+Diferente das ORMs robustas, nosso código Go puro acessando o _Database Engine_ falhou nativamente (Error 22P02, syntax map) ao tentar acoplar um map Go (nosso `Metadata map[string]string`) em uma coluna `JSONB`.
+Para solucionar as quebras, introduzimos a rotina braçal em todo o repositório:
+```go
+metadataJSON, err := json.Marshal(event.Metadata) // Transformação forçada em Bytes Puros
+```
+Isso converte nossos mapas de rastros atrelados as mensagens para um pacote serializado unicamente em Byte Arrays, o qual o Driver do Postgress engole e interpreta organicamente como `JSONB`, sem dores de cabeça!
 
 ## 2. A Coreografia Paralela (Padrão de Fases / Claim)
 

@@ -3,12 +3,14 @@
 
 Este documento serve como o **Guia Mestre (Índice)** para toda a documentação da base de código do The Asaas Framework. Nossa arquitetura foi montada seguindo estritos preceitos de **Arquitetura Hexagonal (Ports & Adapters)**, **Clean Architecture** e garantias de **Resiliência Assíncrona de Larga Escala (Inbox/Outbox)**.
 
-Caso você seja um desenvolvedor novo realizando o *Onboarding* no projeto, a ordem de leitura recomendada dos manuais infra-citados reflete exatamente como os dados fluem da internet até o núcleo do negócio e, finalmente, para o banco de dados.
+O sistema opera de forma plena (Zero Mocks), conectado à internet lendo configurações do sistema a partir da camada `.env` na raiz do projeto (cujos segredos estão devidamente blindados contra vazamentos online no GitHub graças ao `.gitignore`). Execuções são disparadas nativamente via `go run main.go`, o qual engatilha o _Bootstrap_ simultâneo do Gateway HTTP nativo, conexões com Postgress Local, e o despertar de _Workers_ em Background.
+
+Caso você seja um desenvolvedor novo realizando o *Onboarding* no projeto, a ordem de leitura recomendada dos manuais inframencionados reflete exatamente como os dados fluem da internet até o núcleo do negócio e, finalmente, para o banco de dados.
 
 ---
 
 ## 1. A Camada de Entrada e Orquestração (`internal/app`)
-Esta camada é de onde os dados externos chegam (via Webhooks ou Polling de mensagens) e como eles são orquestrados e embalados para que a nossa malha de negócio não precise entender o "mundo feio lá fora".
+Esta camada é de onde os dados externos chegam (via Webhooks do ngrok injetado nas rotas Asaas) e como eles são orquestrados e embalados para que a nossa malha de negócio não precise entender o "mundo feio lá fora".
 
 *   🔗 **[Handlers (Recepção HTTP)](internal_app_handler.md)**
     *   Como os Webhooks são recebidos, rastreados (Tracer ID) e gravados secamente (`Blind Ingestion`) em nanossegundos no BD.
@@ -41,7 +43,7 @@ O submundo e sustentação física da fundação. Aqui ficam as requisições le
 *   🔗 **[Resilience (Disjuntor/Circuit Breaker)](internal_infra_resilience.md)**
     *   Nossa blindagem matemática (`EWMA`) com travas atômicas diretas no processador (`sync/atomic`) que barra trafego hostil no momento que as Redes ou Gateways explodem as métricas.
 *   🔗 **[Gateway (Ponto de Fuga para Rede)](internal_infra_gateway.md)**
-    *   As conexões HTTP reais com mockings para simular perfeitamente comportamentos de provedores na AWS e afins.
+    *   As conexões HTTP reais, abandonando todo o sistema de "mockings" anteriores. Faz requisições TCP ativas na nuvem com autenticação atachada, lendo agressivamente o arquivo `.env` protegido.
 *   🔗 **[Telemetry (Monitoramento Sistêmico)](internal_infra_telemetry.md)**
     *   A orquestração _Singleton_ via pacotadores assíncronos das bibliotecas OpenTelemetry, que preenchem nossas labels cruzadas no Datadog/Grafana para não nos perdemos _em tempo de debugging_.
 
