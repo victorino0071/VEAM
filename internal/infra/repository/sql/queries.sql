@@ -1,7 +1,9 @@
 -- name: SaveInboxEvent :exec
 INSERT INTO inbox (id, external_id, event_type, payload, metadata)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (external_id) DO NOTHING;
+ON CONFLICT (external_id) DO UPDATE 
+SET payload = EXCLUDED.payload, metadata = EXCLUDED.metadata, updated_at = NOW()
+WHERE inbox.updated_at < NOW();
 
 -- name: ClaimInboxEvents :many
 -- PHASE A: SELECT SKIP LOCKED + UPDATE status = 'PROCESSING'
@@ -19,7 +21,14 @@ RETURNING *;
 -- name: FinalizeInboxEvent :exec
 -- PHASE C: UPDATE status = 'COMPLETED'
 UPDATE inbox
-SET status = 'COMPLETED', processed_at = NOW()
+SET status = 'COMPLETED', processed_at = NOW(), updated_at = NOW()
+WHERE id = $1;
+
+-- name: MarkInboxFailed :exec
+UPDATE inbox
+SET status = CASE WHEN retry_count >= 4 THEN 'DLQ' ELSE 'PENDING' END,
+    retry_count = retry_count + 1,
+    updated_at = NOW()
 WHERE id = $1;
 
 -- name: SaveOutboxEvent :exec
@@ -32,6 +41,7 @@ SET status = 'PROCESSING'
 WHERE id IN (
     SELECT id FROM outbox
     WHERE status = 'PENDING'
+    AND created_at > NOW() - INTERVAL '48 HOURS'
     ORDER BY created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT $1

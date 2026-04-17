@@ -123,3 +123,7 @@ func (cb *circuitBreaker) GetState(ctx context.Context) (string, error) {
 	defer cb.mu.RUnlock()
 	return cb.state, nil
 }
+
+func (cb *circuitBreaker) GetFailureProbability(ctx context.Context) (float64, error) {
+	return math.Float64frombits(atomic.LoadUint64(&cb.pFailure)), nil
+}

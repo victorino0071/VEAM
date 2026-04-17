@@ -28,7 +28,7 @@ func (dto *AsaasPaymentDTO) ToDomain() (*entity.Transaction, error) {
 		ID:          dto.ID,
 		CustomerID:  dto.Customer,
 		Amount:      dto.Value,
-		Currency:    "BRL",
+		// Currency: "BRL" removido para evitar corrupção lógica (deixado vazio para Domain resolver)
 		Status:      status,
 		Description: dto.Description,
 		DueDate:     dueDate,
@@ -39,14 +39,16 @@ func (dto *AsaasPaymentDTO) ToDomain() (*entity.Transaction, error) {
 
 func mapAsaasStatus(asaasStatus string) entity.PaymentStatus {
 	switch asaasStatus {
-	case "RECEIVED", "CONFIRMED":
-		return entity.StatusPaid
+	case "RECEIVED":
+		return entity.StatusReceived
+	case "CONFIRMED":
+		return entity.StatusConfirmed
 	case "OVERDUE", "FAILED":
 		return entity.StatusFailed
 	case "REFUNDED":
 		return entity.StatusRefunded
 	case "REFUND_REQUESTED":
-		return entity.StatusPending
+		return entity.StatusRefundInitiated
 	default:
 		return entity.StatusPending
 	}

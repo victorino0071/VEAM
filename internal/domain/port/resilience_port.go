@@ -14,4 +14,7 @@ type CircuitBreaker interface {
 	
 	// GetState retorna o estado atual ("CLOSED", "OPEN", "HALF_OPEN").
 	GetState(ctx context.Context) (string, error)
+	
+	// GetFailureProbability expõe a métrica matemática EWMA (0.0 a 1.0).
+	GetFailureProbability(ctx context.Context) (float64, error)
 }

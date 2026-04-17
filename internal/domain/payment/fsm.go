@@ -25,6 +25,11 @@ func (f *paymentFSM) SetMetadata(metadata map[string]string) {
 }
 
 func (f *paymentFSM) TransitionTo(next entity.PaymentStatus) (*entity.OutboxEvent, error) {
+	// Se for exatamente o mesmo, é idempotente no domínio
+	if f.tx.Status == next {
+		return nil, nil
+	}
+
 	switch f.tx.Status {
 	case entity.StatusPending:
 		if next == entity.StatusPaid {
@@ -35,6 +40,16 @@ func (f *paymentFSM) TransitionTo(next entity.PaymentStatus) (*entity.OutboxEven
 			f.tx.Status = entity.StatusFailed
 			return entity.NewOutboxEvent("event-id", "PAYMENT_FAILED", []byte("payload"), f.metadata), nil
 		}
+	case entity.StatusPaid:
+		if next == entity.StatusRefundInitiated {
+			f.tx.Status = entity.StatusRefundInitiated
+			return entity.NewOutboxEvent("event-id", "REFUND_STARTED", []byte("payload"), f.metadata), nil
+		}
 	}
-	return nil, fmt.Errorf("transição inválida de %s para %s", f.tx.Status, next)
+
+	// Sagas / Anomaly Handling: Se uma ordem bizarra chega (ex: PAID mas estava FAILED)
+	// Em vez de explodir com Exception e travar a DLQ imediatamente, convertemos
+	// para um estado de ANOMALY para triagem manual/assistida, mas aceitamos a transição internamente.
+	f.tx.Status = entity.StatusAnomaly
+	return entity.NewOutboxEvent("event-id", "PAYMENT_ANOMALY", []byte(fmt.Sprintf("Invalid transition attempted: %s -> %s", f.tx.Status, next)), f.metadata), nil
 }

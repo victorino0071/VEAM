@@ -5,11 +5,16 @@ import "time"
 type PaymentStatus string
 
 const (
-	StatusPending  PaymentStatus = "PENDING"
-	StatusPaid     PaymentStatus = "PAID"
-	StatusFailed   PaymentStatus = "FAILED"
-	StatusCanceled PaymentStatus = "CANCELED"
-	StatusRefunded PaymentStatus = "REFUNDED"
+	StatusPending           PaymentStatus = "PENDING"
+	StatusReceived          PaymentStatus = "RECEIVED"
+	StatusConfirmed         PaymentStatus = "CONFIRMED"
+	StatusPaid              PaymentStatus = "PAID"
+	StatusFailed            PaymentStatus = "FAILED"
+	StatusCanceled          PaymentStatus = "CANCELED"
+	StatusRefunded          PaymentStatus = "REFUNDED"
+	StatusRefundInitiated   PaymentStatus = "REFUND_INITIATED"
+	StatusChargebackPending PaymentStatus = "CHARGEBACK_PENDING"
+	StatusAnomaly           PaymentStatus = "ANOMALY"
 )
 
 type Transaction struct {

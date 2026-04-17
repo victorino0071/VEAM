@@ -79,8 +79,14 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 		success := c.processEvent(workerCtx, event)
 
 		// PHASE C: Finalize (Nova Transação Curta p/ Update de Status)
-		if err := c.repo.FinalizeInboxEvent(ctx, event.ID, success); err != nil {
-			slog.ErrorContext(workerCtx, "[InboxConsumer] Erro na Phase C (Finalize)", "error", err, "id", event.ID)
+		if success {
+			if err := c.repo.MarkInboxCompleted(ctx, event.ID); err != nil {
+				slog.ErrorContext(workerCtx, "[InboxConsumer] Erro na Phase C (Completed)", "error", err, "id", event.ID)
+			}
+		} else {
+			if err := c.repo.MarkInboxFailed(ctx, event.ID); err != nil {
+				slog.ErrorContext(workerCtx, "[InboxConsumer] Erro na Phase C (Failed/DLQ)", "error", err, "id", event.ID)
+			}
 		}
 	}
 

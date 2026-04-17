@@ -34,6 +34,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metadata := make(map[string]string)
 	propagator := otel.GetTextMapPropagator()
 	propagator.Inject(ctx, propagation.MapCarrier(metadata))
+	
+	// Validação de Versão Cega (Antifragilidade)
+	metadata["schema_version"] = "v1"
+	// Idealmente r.Header.Get("Date") ou o campo equivalente do Asaas
+	metadata["asaas_timestamp"] = r.Header.Get("Date")
 
 	// 3. Verificação Criptográfica
 	token := r.Header.Get("asaas-access-token")

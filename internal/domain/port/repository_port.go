@@ -15,8 +15,10 @@ type Repository interface {
 	ClaimOutboxEvents(ctx context.Context, limit int) ([]*entity.OutboxEvent, error)
 
 	// Phase C: Finalize (Update Status + Commit)
-	FinalizeInboxEvent(ctx context.Context, id string, success bool) error
-	FinalizeOutboxEvent(ctx context.Context, id string, success bool) error
+	MarkInboxCompleted(ctx context.Context, id string) error
+	MarkInboxFailed(ctx context.Context, id string) error
+	MarkOutboxCompleted(ctx context.Context, id string) error
+	MarkOutboxFailed(ctx context.Context, id string) error
 
 	// Domínio
 	GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error)

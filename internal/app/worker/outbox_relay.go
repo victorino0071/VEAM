@@ -42,7 +42,18 @@ func (r *OutboxRelay) Start(ctx context.Context) {
 			continue
 		}
 
-		processed := r.consumeBatch(ctx)
+		// Janela deslizante do Outbox (Sliding Window based on EWMA)
+		pf, _ := r.breaker.GetFailureProbability(ctx)
+		batchLimit := 10
+		if pf > 0 {
+			shrink := int(10.0 * (1.0 - pf))
+			if shrink < 1 {
+				shrink = 1
+			}
+			batchLimit = shrink
+		}
+
+		processed := r.consumeBatch(ctx, batchLimit)
 
 		if processed == 0 {
 			r.k++
@@ -66,9 +77,9 @@ func (r *OutboxRelay) Start(ctx context.Context) {
 	}
 }
 
-func (r *OutboxRelay) consumeBatch(ctx context.Context) int {
-	// PHASE A: Claim (Transação Curta + Commit Imediato)
-	events, err := r.repo.ClaimOutboxEvents(ctx, 10)
+func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
+	// PHASE A: Claim (Transação Curta + Commit Imediato com limit dinâmico)
+	events, err := r.repo.ClaimOutboxEvents(ctx, limit)
 	if err != nil || len(events) == 0 {
 		return 0
 	}
@@ -87,9 +98,14 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context) int {
 		r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
 
 		// PHASE C: Finalize (Nova Transação Curta para Status)
-		success := (err == nil)
-		if err := r.repo.FinalizeOutboxEvent(ctx, event.ID, success); err != nil {
-			slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Finalize)", "error", err, "id", event.ID)
+		if err == nil {
+			if err := r.repo.MarkOutboxCompleted(ctx, event.ID); err != nil {
+				slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Completed)", "error", err, "id", event.ID)
+			}
+		} else {
+			if err := r.repo.MarkOutboxFailed(ctx, event.ID); err != nil {
+				slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Failed)", "error", err, "id", event.ID)
+			}
 		}
 	}
 
