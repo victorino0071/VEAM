@@ -7,6 +7,15 @@ import (
 	"github.com/Victor/payment-engine/domain/entity"
 )
 
+// DBTX abstrai as operações comuns entre *sql.DB e *sql.Tx
+type DBTX interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+}
+
+type txKey struct{} // Chave privada para evitar colisões no context
+
 type PostgresRepository struct {
 	db *sql.DB
 }
@@ -15,7 +24,14 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
-// Ingestão com ON CONFLICT (sqlc-style)
+// exec decide qual executor usar: a transação no contexto ou o pool global (auto-commit).
+func (r *PostgresRepository) exec(ctx context.Context) DBTX {
+	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok {
+		return tx
+	}
+	return r.db
+}
+
 func (r *PostgresRepository) SaveInboxEvent(ctx context.Context, event *entity.InboxEvent) error {
 	metadataJSON, err := json.Marshal(event.Metadata)
 	if err != nil {
@@ -28,7 +44,7 @@ func (r *PostgresRepository) SaveInboxEvent(ctx context.Context, event *entity.I
 		ON CONFLICT (external_id) DO UPDATE 
 		SET payload = EXCLUDED.payload, metadata = EXCLUDED.metadata, updated_at = NOW()
 		WHERE inbox.updated_at < NOW();`
-	_, err = r.db.ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, metadataJSON)
+	_, err = r.exec(ctx).ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, metadataJSON)
 	return err
 }
 
@@ -39,24 +55,32 @@ func (r *PostgresRepository) SaveOutboxEvent(ctx context.Context, event *entity.
 	}
 
 	query := `INSERT INTO outbox (id, event_type, payload, metadata) VALUES ($1, $2, $3, $4)`
-	_, err = r.db.ExecContext(ctx, query, event.ID, event.EventType, event.Payload, metadataJSON)
+	_, err = r.exec(ctx).ExecContext(ctx, query, event.ID, event.EventType, event.Payload, metadataJSON)
 	return err
 }
 
 func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([]*entity.InboxEvent, error) {
 	query := `
 		UPDATE inbox
-		SET status = 'PROCESSING'
+		SET status = 'PROCESSING',
+			updated_at = NOW(),
+			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa (evita loop infinito de Poison Pills)
+			retry_count = CASE WHEN status = 'PROCESSING' THEN retry_count + 1 ELSE retry_count END
 		WHERE id IN (
 			SELECT id FROM inbox
-			WHERE status = 'PENDING'
+			WHERE 
+				-- Fluxo Normal
+				status = 'PENDING'
+				OR 
+				-- Fluxo de Autocura (Resgate de Órfãos)
+				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES' AND retry_count < 4)
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
 		RETURNING id, external_id, event_type, payload, metadata, status, retry_count, created_at;`
 	
-	rows, err := r.db.QueryContext(ctx, query, limit)
+	rows, err := r.exec(ctx).QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -81,18 +105,25 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) ([]*entity.OutboxEvent, error) {
 	query := `
 		UPDATE outbox
-		SET status = 'PROCESSING'
+		SET status = 'PROCESSING',
+			updated_at = NOW(),
+			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa (evita loop infinito de Poison Pills)
+			retry_count = CASE WHEN status = 'PROCESSING' THEN retry_count + 1 ELSE retry_count END
 		WHERE id IN (
 			SELECT id FROM outbox
-			WHERE status = 'PENDING'
-			AND created_at > NOW() - INTERVAL '48 HOURS'
+			WHERE 
+				-- Fluxo Normal
+				(status = 'PENDING' AND created_at > NOW() - INTERVAL '48 HOURS')
+				OR 
+				-- Fluxo de Autocura (Resgate de Órfãos)
+				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES' AND retry_count < 4)
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
 		RETURNING id, event_type, payload, metadata, status, retry_count, created_at;`
 
-	rows, err := r.db.QueryContext(ctx, query, limit)
+	rows, err := r.exec(ctx).QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +147,7 @@ func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) (
 
 func (r *PostgresRepository) MarkInboxCompleted(ctx context.Context, id string) error {
 	query := `UPDATE inbox SET status = 'COMPLETED', processed_at = NOW(), updated_at = NOW() WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.exec(ctx).ExecContext(ctx, query, id)
 	return err
 }
 
@@ -127,25 +158,25 @@ func (r *PostgresRepository) MarkInboxFailed(ctx context.Context, id string) err
 			retry_count = retry_count + 1,
 			updated_at = NOW()
 		WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.exec(ctx).ExecContext(ctx, query, id)
 	return err
 }
 
 func (r *PostgresRepository) MarkOutboxCompleted(ctx context.Context, id string) error {
 	query := `UPDATE outbox SET status = 'COMPLETED', processed_at = NOW() WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.exec(ctx).ExecContext(ctx, query, id)
 	return err
 }
 
 func (r *PostgresRepository) MarkOutboxFailed(ctx context.Context, id string) error {
 	query := `UPDATE outbox SET status = 'FAILED', retry_count = retry_count + 1 WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
+	_, err := r.exec(ctx).ExecContext(ctx, query, id)
 	return err
 }
 
 func (r *PostgresRepository) GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error) {
 	query := `SELECT id, customer_id, provider_id, amount, currency, status, description, due_date, created_at, updated_at FROM transactions WHERE id = $1 FOR UPDATE`
-	row := r.db.QueryRowContext(ctx, query, id)
+	row := r.exec(ctx).QueryRowContext(ctx, query, id)
 	
 	var s entity.TransactionSnapshot
 	err := row.Scan(&s.ID, &s.CustomerID, &s.ProviderID, &s.Amount, &s.Currency, &s.Status, &s.Description, &s.DueDate, &s.CreatedAt, &s.UpdatedAt)
@@ -168,7 +199,7 @@ func (r *PostgresRepository) SaveTransaction(ctx context.Context, tx *entity.Tra
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE 
 		SET status = EXCLUDED.status, updated_at = NOW();`
-	_, err := r.db.ExecContext(ctx, query, s.ID, s.CustomerID, s.ProviderID, s.Amount, s.Currency, s.Status, s.Description, s.DueDate, s.CreatedAt, s.UpdatedAt)
+	_, err := r.exec(ctx).ExecContext(ctx, query, s.ID, s.CustomerID, s.ProviderID, s.Amount, s.Currency, s.Status, s.Description, s.DueDate, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 
@@ -177,14 +208,15 @@ func (r *PostgresRepository) ExecuteInTransaction(ctx context.Context, fn func(c
 	if err != nil {
 		return err
 	}
-	// Note: Implementing ExecuteInTransaction with a real DB transaction requires
-	// that we pass the *sql.Tx down. For simplicity in this framework, we are assuming
-	// the repo methods would use the tx if available. In a more complex setup, you'd
-	// store the tx in the context.
-	err = fn(ctx)
+
+	// Propaga a transação via Context
+	txCtx := context.WithValue(ctx, txKey{}, tx)
+
+	err = fn(txCtx)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
+	
 	return tx.Commit()
 }

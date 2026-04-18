@@ -51,8 +51,15 @@ func (cb *circuitBreaker) Allow(ctx context.Context) (bool, error) {
 
 	if state == StateOpen {
 		if time.Since(lastT) > cb.config.ResetTimeout {
-			cb.transition(ctx, StateHalfOpen)
-			return true, nil
+			// Escalonamento para Write Lock (Double-Check Locking)
+			cb.mu.Lock()
+			defer cb.mu.Unlock()
+			
+			if cb.state == StateOpen && time.Since(cb.lastTransition) > cb.config.ResetTimeout {
+				cb.setState(ctx, StateHalfOpen)
+				return true, nil // O vencedor do lock testa o provedor
+			}
+			return false, errors.New("circuit breaker is open (lost race to half-open)")
 		}
 		return false, errors.New("circuit breaker is open")
 	}
@@ -89,6 +96,16 @@ func (cb *circuitBreaker) RecordResult(ctx context.Context, err error) error {
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+
+	if cb.state == StateHalfOpen {
+		if err == nil {
+			cb.setState(ctx, StateClosed)
+			atomic.StoreUint64(&cb.pFailure, 0)
+		} else {
+			cb.setState(ctx, StateOpen) // Snapback imediato e impiedoso em caso de falha no teste
+		}
+		return nil
+	}
 
 	if totalReq >= uint64(cb.config.MinRequests) && currentP > cb.config.FailureThreshold {
 		cb.setState(ctx, StateOpen)

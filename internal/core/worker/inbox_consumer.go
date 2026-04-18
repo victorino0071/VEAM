@@ -78,6 +78,10 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 
 		slog.InfoContext(workerCtx, "[InboxConsumer] Ingressando Phase B (Background Exec)", "event_id", event.ID)
 
+		// Nota: O InboxConsumer orquestra o domínio. Em uma implementação industrial,
+		// o fail-fast deveria vir de um breaker global de saúde do domínio.
+		// A lógica de resiliência aqui é garantida pela atomicidade do Service.ProcessPayment.
+		
 		success := c.processEvent(workerCtx, event)
 
 		// PHASE C: Finalize (Nova Transação Curta p/ Update de Status)
