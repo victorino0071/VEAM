@@ -1,0 +1,96 @@
+package paymentengine
+
+import (
+	"context"
+	"database/sql"
+	"github.com/Victor/payment-engine/internal/core/service"
+	"github.com/Victor/payment-engine/internal/core/worker"
+	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/payment-engine/domain/registry"
+	"github.com/Victor/payment-engine/internal/core/repository"
+	"github.com/Victor/payment-engine/internal/core/resilience"
+	"github.com/Victor/payment-engine/internal/core/telemetry"
+	"github.com/Victor/payment-engine/internal/core/handler"
+	"net/http"
+	"time"
+)
+
+// Engine representa o coração do motor de pagamentos.
+type Engine struct {
+	Repo     port.Repository
+	Registry *registry.ProviderRegistry
+	Service  *service.PaymentService
+	Consumer *worker.InboxConsumer
+	Relay    *worker.OutboxRelay
+	Breaker  port.CircuitBreaker
+	db       *sql.DB
+}
+
+// NewEngine inicializa a fundação do motor sobre uma conexão Postgres.
+func NewEngine(db *sql.DB) *Engine {
+	repo := repository.NewPostgresRepository(db)
+	reg := registry.NewProviderRegistry()
+	
+	// Circuit Breaker Padrão
+	cb := resilience.NewCircuitBreaker(resilience.Config{
+		FailureThreshold: 0.5,
+		ResetTimeout:     10 * time.Second,
+		Alpha:            0.2,
+		MinRequests:      5,
+	})
+
+	svc := service.NewPaymentService(repo, reg)
+	consumer := worker.NewInboxConsumer(repo, svc)
+	relay := worker.NewOutboxRelay(repo, reg, cb)
+
+	return &Engine{
+		Repo:     repo,
+		Registry: reg,
+		Service:  svc,
+		Consumer: consumer,
+		Relay:    relay,
+		Breaker:  cb,
+		db:       db,
+	}
+}
+
+// WithTelemetry atacha a observabilidade no motor.
+func (e *Engine) WithTelemetry(serviceName string) *Engine {
+	_, _ = telemetry.InitTelemetry(serviceName)
+	return e
+}
+
+// RegisterProvider acopla um novo gateway ao roteador lógico.
+func (e *Engine) RegisterProvider(id string, adapter port.GatewayAdapter) *Engine {
+	e.Registry.Register(id, adapter)
+	return e
+}
+
+// NewWebhookHandler cria um handler configurado para um provedor específico (Modo API).
+func (e *Engine) NewWebhookHandler(providerID string) http.Handler {
+	adapter, err := e.Registry.Get(providerID)
+	if err != nil {
+		panic(err)
+	}
+	return handler.NewWebhookHandler(e.Repo, adapter, providerID)
+}
+
+// ConsumeInbox inicia o loop de processamento de eventos recebidos (Modo Worker).
+// Este método é bloqueante.
+func (e *Engine) ConsumeInbox(ctx context.Context) error {
+	e.Consumer.Start(ctx)
+	return nil
+}
+
+// RelayOutbox inicia o despacho de eventos para o mundo exterior (Modo Worker).
+// Este método é bloqueante.
+func (e *Engine) RelayOutbox(ctx context.Context) error {
+	e.Relay.Start(ctx)
+	return nil
+}
+
+// Start mantém compatibilidade para rodar ambos em goroutines (Modo Monolítico).
+func (e *Engine) Start(ctx context.Context) {
+	go e.ConsumeInbox(ctx)
+	go e.RelayOutbox(ctx)
+}

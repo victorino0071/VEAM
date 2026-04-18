@@ -2,25 +2,47 @@
 
 O núcleo do sistema não deve saber que o Asaas existe. Esta fase isola as regras de negócio de fatores externos de entropia (falhas de rede, mudanças de API).
 
-#### 1.1. Modelagem de Agregados (DDD)
+#### 1. Isolamento de Estado (Memento Pattern)
 
-Defina as entidades núcleo (`Transaction`, `Customer`, `Subscription`) usando structs limpas.
+Refatoração em `/domain/entity/transaction.go`:
 
-#### 1.2. Implementação da FSM (Finite State Machine)
+*   **[NEW]** `TransactionSnapshot`: Struct pública contendo o estado serializável da transação (Campos: ID, Status, Amount, etc.).
+*   **[MODIFY]** `Transaction`: 
+    *   Método `ToSnapshot() TransactionSnapshot`: Exporta o estado interno.
+    *   Método `ApplySnapshot(TransactionSnapshot)`: Importa o estado de forma controlada.
+*   **[DELETE]** `RebuildFromRepository`: Remoção da função que permitia mutação arbitrária direta via argumentos semânticos.
 
-* Construa um motor de transição de estados para o ciclo de vida do pagamento.
+---
 
-**Critério de Sucesso:**
-Transições ilegais (ex: `Failed` → `Paid`) devem resultar em erros gerados em runtime e devem ser idealmente restringidas na lógica de compilação através de interfaces de estado.
+### 2. Flexibilidade do Domínio (Transition Policies)
 
-#### 1.3. Contratos de Interface
+*   **[NEW]** `domain/entity/policy.go`: 
+    ```go
+    type TransitionPolicy interface {
+        ID() string
+        Evaluate(ctx context.Context, tx *Transaction, targetState PaymentStatus) error
+    }
+    ```
+*   **[MODIFY]** `Transaction`: O método `TransitionTo` agora itera sobre as políticas injetadas (Chain of Responsibility) antes de persistir a mudança de estado.
 
-Defina as portas (Ports) que a camada de infraestrutura terá que satisfazer.
-Crie as interfaces:
+---
 
-* `GatewayAdapter`
-* `IdempotencyStore`
-* `WebhookHandler`
+### 3. Desacoplamento de Execução (Intenção vs. Configuração)
+
+Refatoração em `/engine.go` para remover a passividade mágica do `Start()` geral:
+
+*   **[MODIFY]** `Engine`: Implementação de métodos terminais explícitos:
+    *   `engine.ConsumeInbox(ctx context.Context) error`: Inicia o loop de processamento do Inbox.
+    *   `engine.RelayOutbox(ctx context.Context) error`: Inicia o despachante do Outbox.
+    *   `engine.NewWebhookHandler(providerID string) http.Handler`: Retorna o handler passivo.
+
+---
+
+### 4. CLI de Operações (Isolamento de Infraestrutura)
+
+*   **[NEW]** `cmd/payment-cli/main.go`: Binário independente para tarefas administrativas.
+*   Funcionalidade Inicial: `migrate up/down` consumindo os arquivos `//go:embed` do núcleo.
+*   **[MODIFY]** `engine.go`: Remoção do `WithAutoMigrate()` em tempo de execução para prevenir contenção de locks DDL em escala.
 
 ---
 

@@ -1,13 +1,13 @@
 package scripts
 
 import (
-	"asaas_framework/internal/domain/entity"
-	"asaas_framework/internal/infra/resilience"
-	"asaas_framework/pkg/testing/mock"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/payment-engine/internal/core/resilience"
 )
 
 // TestResilienceDemo permite rodar a demonstração de caos e resiliência via 'go test'.
