@@ -7,5 +7,8 @@ A camada de repositório implementa a persistência física sobre o Postgres, ut
 Para evitar contenção de locks e garantir que múltiplos workers possam operar simultaneamente em um mesmo banco de dados, utilizamos a técnica `SELECT ... FOR UPDATE SKIP LOCKED`.
 -   Isso permite que cada réplica do `InboxConsumer` ou `OutboxRelay` reivindique seu próprio lote de eventos sem bloquear as outras.
 
-## 🏗️ Rebuild Pattern
-O repositório utiliza o método `entity.RebuildFromRepository` para carregar transações. Isso permite restaurar o estado privado (`status`) sem expor setters públicos que poderiam ser abusados pela camada de aplicação.
+## 🏗️ Memento Pattern (Snapshot Hydration)
+Diferente de sistemas que expõem campos privados via setters públicos, este repositório utiliza o **Memento Pattern**:
+-   O repositório lê os campos físicos do banco e preenche uma struct `entity.TransactionSnapshot`.
+-   A entidade é então reidratada via `ApplySnapshot(snapshot)`.
+-   Isso garante que o repositório consiga restaurar o estado soberano (`status`) sem permitir que camadas de aplicação manipulem o estado fora da FSM.

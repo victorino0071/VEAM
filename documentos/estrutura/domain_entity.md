@@ -1,50 +1,44 @@
 # Domínio: Entidades e Soberania de Estado
 **Caminho:** `documentos/estrutura/domain_entity.md`
 
-Este documento detalha o modelo de dados e a blindagem lógica do Payment Engine. Seguimos o padrão de **Entidades Ricas** em detrimento de modelos anêmicos, garantindo que as regras de negócio residam onde os dados estão.
+Este documento detalha o modelo de dados e a blindagem lógica do Payment Engine. Seguimos o padrão de **Entidades Ricas** com **Soberania de Estado** absoluta.
 
 ---
 
-## 🛡️ Opaque State (Encapsulamento Soberano)
+## 🛡️ Opaque State & Memento Pattern
 
-Diferente de sistemas convencionais onde campos de estado são exportados, a entidade `Transaction` utiliza um **Opaque State** para garantir a integridade financeira:
+Diferente de sistemas convencionais onde campos de estado são exportados, a entidade `Transaction` utiliza o padrão **Memento** para garantir a integridade financeira e evitar vazamento de fronteiras:
 
--   **Campo `status` (Privado):** Impossibilita que camadas de infraestrutura (como adaptadores ou repositórios) alterem o estado arbitrariamente.
--   **Getter `Status()`:** Apenas leitura é permitida externamente.
+-   **Estado Privado (`status`):** O campo status é minúsculo e inalcançável fora do pacote comercial.
+-   **`TransactionSnapshot`:** Uma struct pública e imutável que representa o estado serializável da transação.
+-   **`ToSnapshot()` & `ApplySnapshot(s)`:** Os únicos métodos para exportar e reidratar o estado via infraestrutura. Isso impede que o hospedeiro crie transações em estados arbitrários sem passar pela FSM.
 
 ## ⚙️ A Máquina de Estados Soberana (TransitionTo)
 
-Toda mutação de estado transacional é centralizada no método `TransitionTo(newState, metadata)`. Este método age como o **Único Ponto de Verdade**:
+Toda mutação de estado transacional é centralizada no método `TransitionTo`. Este método não possui lógica "chumbada", mas delega a validação a uma corrente de políticas.
 
 ```go
-func (t *Transaction) TransitionTo(newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error)
+func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error)
 ```
 
-### Regras de Transição (Exemplo FSM)
--   `PENDING` -> `PAID`: Válido (Gera evento `PAYMENT_CONFIRMED`).
--   `PAID` -> `FAILED`: **Inválido** (Bloqueado pela FSM).
--   `PAID` -> `REFUND_INITIATED`: Válido (Inicia trilha de auditoria).
+### 💉 Injeção de Políticas (TransitionPolicy)
+A rigidez do motor foi mitigada pela interface `TransitionPolicy`. Isso permite que o domínio seja adaptável:
+
+```go
+type TransitionPolicy interface {
+    ID() string
+    Evaluate(ctx context.Context, tx *Transaction, targetState PaymentStatus) error
+}
+```
+
+Dessa forma, regras de antifraude, auditoria ou fluxos de captura bifásica podem ser injetados na entidade sem alterar seu código base.
 
 ### Geração de Outbox Atômico
-Ao realizar uma transição válida, a entidade retorna automaticamente um `OutboxEvent`. Isso garante que:
-1.  A mudança de estado no banco ocorra.
-2.  O evento de integração seja disparado (Ex: notificar o ERP do cliente).
-3.  O rastro de metadados (W3C Trace Context) seja preservado.
-
----
-
-## 🏗️ Reconstrução Segura (Hydration)
-
-Para permitir que o repositório carregue dados do banco sem violar a FSM, utilizamos o padrão de **Rebuild**:
-
-```go
-func RebuildFromRepository(...) *Transaction
-```
-Este método é de uso exclusivo da camada de infraestrutura para "reidratar" objetos salvos, não devendo ser usado para criar novas transações de negócio.
+Ao realizar uma transição validada por todas as políticas, a entidade retorna um `OutboxEvent`. Isso garante a atomicidade entre a mudança de estado e a notificação aos sistemas periféricos.
 
 ---
 
 ## 🧩 Principais Entidades
-1.  **Transaction**: O coração do motor.
+1.  **Transaction**: O agregado principal com FSM injetável.
 2.  **Customer**: Representação do pagador.
 3.  **Outbox/InboxEvent**: Entidades de transporte para resiliência assíncrona.
