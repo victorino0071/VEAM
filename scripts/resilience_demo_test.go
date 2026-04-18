@@ -1,13 +1,13 @@
 package scripts
 
 import (
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/internal/core/resilience"
-	"github.com/Victor/payment-engine/adapters/mockprovider"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/payment-engine/internal/core/resilience"
 )
 
 // TestResilienceDemo permite rodar a demonstração de caos e resiliência via 'go test'.
