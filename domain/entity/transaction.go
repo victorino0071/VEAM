@@ -3,8 +3,6 @@ package entity
 import (
 	"context"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type PaymentStatus string
@@ -61,7 +59,7 @@ func (t *Transaction) Status() PaymentStatus {
 }
 
 func (t *Transaction) ToSnapshot() TransactionSnapshot {
-	return TransactionSnapshot{
+	s := TransactionSnapshot{
 		ID:            t.ID,
 		CustomerID:    t.CustomerID,
 		Amount:        t.Amount,
@@ -69,27 +67,50 @@ func (t *Transaction) ToSnapshot() TransactionSnapshot {
 		Status:        t.status,
 		Description:   t.Description,
 		DueDate:       t.DueDate,
-		PaymentDate:   t.PaymentDate,
-		ConfirmedDate: t.ConfirmedDate,
 		ProviderID:    t.ProviderID,
 		CreatedAt:     t.CreatedAt,
 		UpdatedAt:     t.UpdatedAt,
 	}
+	if t.PaymentDate != nil {
+		d := *t.PaymentDate
+		s.PaymentDate = &d
+	}
+	if t.ConfirmedDate != nil {
+		d := *t.ConfirmedDate
+		s.ConfirmedDate = &d
+	}
+	return s
 }
 
-func (t *Transaction) ApplySnapshot(s TransactionSnapshot) {
-	t.ID = s.ID
-	t.CustomerID = s.CustomerID
-	t.Amount = s.Amount
-	t.Currency = s.Currency
-	t.status = s.Status
-	t.Description = s.Description
-	t.DueDate = s.DueDate
-	t.PaymentDate = s.PaymentDate
-	t.ConfirmedDate = s.ConfirmedDate
-	t.ProviderID = s.ProviderID
-	t.CreatedAt = s.CreatedAt
-	t.UpdatedAt = s.UpdatedAt
+// RestoreTransaction é a fábrica estática de reidratação (Memento).
+// Diferente de um "ApplySnapshot", esta função garante que a entidade renasça 
+// com suas defesas de domínio (DefaultTransitionPolicy) ativas.
+func RestoreTransaction(s TransactionSnapshot) *Transaction {
+	t := &Transaction{
+		ID:            s.ID,
+		CustomerID:    s.CustomerID,
+		Amount:        s.Amount,
+		Currency:      s.Currency,
+		status:        s.Status,
+		Description:   s.Description,
+		DueDate:       s.DueDate,
+		ProviderID:    s.ProviderID,
+		CreatedAt:     s.CreatedAt,
+		UpdatedAt:     s.UpdatedAt,
+	}
+	if s.PaymentDate != nil {
+		d := *s.PaymentDate
+		t.PaymentDate = &d
+	}
+	if s.ConfirmedDate != nil {
+		d := *s.ConfirmedDate
+		t.ConfirmedDate = &d
+	}
+	
+	// Auto-Injeção de Defesa na Restauração (Resolvendo o Paradoxo da Hidratação)
+	t.policies = append(t.policies, &DefaultTransitionPolicy{})
+	
+	return t
 }
 
 // WithPolicies anexa regras de transição customizadas à transação.
@@ -99,7 +120,7 @@ func (t *Transaction) WithPolicies(policies ...TransitionPolicy) *Transaction {
 }
 
 // TransitionTo avalia a mudança de estado contra todas as políticas injetadas.
-func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error) {
+func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, eventID string, metadata map[string]string) (*OutboxEvent, error) {
 	// Chain of Responsibility: Todas as políticas devem passar
 	for _, p := range t.policies {
 		if err := p.Evaluate(ctx, t, newState); err != nil {
@@ -126,7 +147,7 @@ func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, 
 		eventType = "REFUND_STARTED"
 	}
 
-	return NewOutboxEvent(uuid.New().String(), eventType, []byte(t.ID), metadata), nil
+	return NewOutboxEvent(eventID, eventType, []byte(t.ID), metadata), nil
 }
 
 func NewTransaction(id, customerID, providerID string, amount float64, description string, dueDate time.Time) *Transaction {

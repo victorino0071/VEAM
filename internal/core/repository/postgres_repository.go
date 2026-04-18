@@ -144,7 +144,7 @@ func (r *PostgresRepository) MarkOutboxFailed(ctx context.Context, id string) er
 }
 
 func (r *PostgresRepository) GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error) {
-	query := `SELECT id, customer_id, provider_id, amount, currency, status, description, due_date, created_at, updated_at FROM transactions WHERE id = $1`
+	query := `SELECT id, customer_id, provider_id, amount, currency, status, description, due_date, created_at, updated_at FROM transactions WHERE id = $1 FOR UPDATE`
 	row := r.db.QueryRowContext(ctx, query, id)
 	
 	var s entity.TransactionSnapshot
@@ -157,11 +157,8 @@ func (r *PostgresRepository) GetTransactionByID(ctx context.Context, id string) 
 		return nil, err
 	}
 
-	// Reconstroi via Snapshot preservando as políticas de domínio
-	tx := entity.NewTransaction(s.ID, s.CustomerID, s.ProviderID, s.Amount, s.Description, s.DueDate)
-	tx.ApplySnapshot(s)
-	
-	return tx, nil
+	// Reconstroi via Snapshot preservando as políticas de domínio e isolamento de memória
+	return entity.RestoreTransaction(s), nil
 }
 
 func (r *PostgresRepository) SaveTransaction(ctx context.Context, tx *entity.Transaction) error {
