@@ -3,13 +3,11 @@ package paymentengine
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"github.com/Victor/payment-engine/internal/core/service"
 	"github.com/Victor/payment-engine/internal/core/worker"
 	"github.com/Victor/payment-engine/domain/port"
 	"github.com/Victor/payment-engine/domain/registry"
 	"github.com/Victor/payment-engine/internal/core/repository"
-	"github.com/Victor/payment-engine/internal/core/repository/migration"
 	"github.com/Victor/payment-engine/internal/core/resilience"
 	"github.com/Victor/payment-engine/internal/core/telemetry"
 	"github.com/Victor/payment-engine/internal/core/handler"
@@ -62,31 +60,37 @@ func (e *Engine) WithTelemetry(serviceName string) *Engine {
 	return e
 }
 
-// WithAutoMigrate executa a sincronização do esquema do banco de dados.
-func (e *Engine) WithAutoMigrate() *Engine {
-	if err := migration.EnsureSchema(e.db); err != nil {
-		panic(fmt.Sprintf("[Engine] Falha na migração automática: %v", err))
-	}
-	return e
-}
-
 // RegisterProvider acopla um novo gateway ao roteador lógico.
 func (e *Engine) RegisterProvider(id string, adapter port.GatewayAdapter) *Engine {
 	e.Registry.Register(id, adapter)
 	return e
 }
 
-// NewWebhookHandler cria um handler configurado para um provedor específico.
+// NewWebhookHandler cria um handler configurado para um provedor específico (Modo API).
 func (e *Engine) NewWebhookHandler(providerID string) http.Handler {
 	adapter, err := e.Registry.Get(providerID)
 	if err != nil {
-		panic(err) // No bootstrapping, erros de config devem ser fatais
+		panic(err)
 	}
 	return handler.NewWebhookHandler(e.Repo, adapter, providerID)
 }
 
-// Start dispara os processos de background (Inbox/Outbox).
+// ConsumeInbox inicia o loop de processamento de eventos recebidos (Modo Worker).
+// Este método é bloqueante.
+func (e *Engine) ConsumeInbox(ctx context.Context) error {
+	e.Consumer.Start(ctx)
+	return nil
+}
+
+// RelayOutbox inicia o despacho de eventos para o mundo exterior (Modo Worker).
+// Este método é bloqueante.
+func (e *Engine) RelayOutbox(ctx context.Context) error {
+	e.Relay.Start(ctx)
+	return nil
+}
+
+// Start mantém compatibilidade para rodar ambos em goroutines (Modo Monolítico).
 func (e *Engine) Start(ctx context.Context) {
-	go e.Consumer.Start(ctx)
-	go e.Relay.Start(ctx)
+	go e.ConsumeInbox(ctx)
+	go e.RelayOutbox(ctx)
 }

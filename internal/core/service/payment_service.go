@@ -36,7 +36,7 @@ func (s *PaymentService) ProcessPaymentWithMetadata(ctx context.Context, incomin
 			tx = incomingTx
 		}
 
-		event, err := tx.TransitionTo(nextStatus, metadata)
+		event, err := tx.TransitionTo(txCtx, nextStatus, metadata)
 		if err != nil {
 			return fmt.Errorf("transição inválida: %w", err)
 		}

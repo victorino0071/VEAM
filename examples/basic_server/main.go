@@ -39,7 +39,6 @@ func main() {
 
 	// 2. Setup do Motor via Builder Pattern (Facade)
 	engine := paymentengine.NewEngine(db).
-		WithAutoMigrate().
 		WithTelemetry("payment-engine").
 		RegisterProvider("asaas", asaas.NewAdapter(providerKey, providerBase))
 

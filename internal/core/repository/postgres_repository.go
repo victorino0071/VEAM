@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"time"
 	"github.com/Victor/payment-engine/domain/entity"
 )
 
@@ -145,15 +144,12 @@ func (r *PostgresRepository) MarkOutboxFailed(ctx context.Context, id string) er
 }
 
 func (r *PostgresRepository) GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error) {
-	query := `SELECT id, customer_id, provider_id, amount, currency, status, description, due_date FROM transactions WHERE id = $1`
+	query := `SELECT id, customer_id, provider_id, amount, currency, status, description, due_date, created_at, updated_at FROM transactions WHERE id = $1`
 	row := r.db.QueryRowContext(ctx, query, id)
 	
-	var txID, custID, provID, desc, currency string
-	var amount float64
-	var status entity.PaymentStatus
-	var dueDate time.Time
-
-	err := row.Scan(&txID, &custID, &provID, &amount, &currency, &status, &desc, &dueDate)
+	var s entity.TransactionSnapshot
+	err := row.Scan(&s.ID, &s.CustomerID, &s.ProviderID, &s.Amount, &s.Currency, &s.Status, &s.Description, &s.DueDate, &s.CreatedAt, &s.UpdatedAt)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil 
 	}
@@ -161,16 +157,21 @@ func (r *PostgresRepository) GetTransactionByID(ctx context.Context, id string) 
 		return nil, err
 	}
 
-	return entity.RebuildFromRepository(txID, custID, provID, status, amount, desc, dueDate), nil
+	// Reconstroi via Snapshot preservando as políticas de domínio
+	tx := entity.NewTransaction(s.ID, s.CustomerID, s.ProviderID, s.Amount, s.Description, s.DueDate)
+	tx.ApplySnapshot(s)
+	
+	return tx, nil
 }
 
 func (r *PostgresRepository) SaveTransaction(ctx context.Context, tx *entity.Transaction) error {
+	s := tx.ToSnapshot()
 	query := `
-		INSERT INTO transactions (id, customer_id, provider_id, amount, currency, status, description, due_date, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		INSERT INTO transactions (id, customer_id, provider_id, amount, currency, status, description, due_date, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE 
 		SET status = EXCLUDED.status, updated_at = NOW();`
-	_, err := r.db.ExecContext(ctx, query, tx.ID, tx.CustomerID, tx.ProviderID, tx.Amount, tx.Currency, tx.Status(), tx.Description, tx.DueDate)
+	_, err := r.db.ExecContext(ctx, query, s.ID, s.CustomerID, s.ProviderID, s.Amount, s.Currency, s.Status, s.Description, s.DueDate, s.CreatedAt, s.UpdatedAt)
 	return err
 }
 

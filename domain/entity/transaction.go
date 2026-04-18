@@ -1,7 +1,7 @@
 package entity
 
 import (
-	"errors"
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,12 +22,14 @@ const (
 	StatusAnomaly           PaymentStatus = "ANOMALY"
 )
 
-type Transaction struct {
+// TransactionSnapshot representa o estado imutável de uma transação para transporte e persistência.
+// Seguindo o padrão Memento para evitar o vazamento de métodos de mutação (rebuilds).
+type TransactionSnapshot struct {
 	ID            string
 	CustomerID    string
 	Amount        float64
 	Currency      string
-	status        PaymentStatus // Opaque State: minúsculo
+	Status        PaymentStatus
 	Description   string
 	DueDate       time.Time
 	PaymentDate   *time.Time
@@ -37,38 +39,98 @@ type Transaction struct {
 	UpdatedAt     time.Time
 }
 
+type Transaction struct {
+	ID            string
+	CustomerID    string
+	Amount        float64
+	Currency      string
+	status        PaymentStatus
+	Description   string
+	DueDate       time.Time
+	PaymentDate   *time.Time
+	ConfirmedDate *time.Time
+	ProviderID    string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+
+	policies []TransitionPolicy // Políticas injetáveis para validação de FSM
+}
+
 func (t *Transaction) Status() PaymentStatus {
 	return t.status
 }
 
-// TransitionTo blinda o status e garante o OutboxEvent atrelado à mesma transação.
-func (t *Transaction) TransitionTo(newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error) {
+func (t *Transaction) ToSnapshot() TransactionSnapshot {
+	return TransactionSnapshot{
+		ID:            t.ID,
+		CustomerID:    t.CustomerID,
+		Amount:        t.Amount,
+		Currency:      t.Currency,
+		Status:        t.status,
+		Description:   t.Description,
+		DueDate:       t.DueDate,
+		PaymentDate:   t.PaymentDate,
+		ConfirmedDate: t.ConfirmedDate,
+		ProviderID:    t.ProviderID,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
+	}
+}
+
+func (t *Transaction) ApplySnapshot(s TransactionSnapshot) {
+	t.ID = s.ID
+	t.CustomerID = s.CustomerID
+	t.Amount = s.Amount
+	t.Currency = s.Currency
+	t.status = s.Status
+	t.Description = s.Description
+	t.DueDate = s.DueDate
+	t.PaymentDate = s.PaymentDate
+	t.ConfirmedDate = s.ConfirmedDate
+	t.ProviderID = s.ProviderID
+	t.CreatedAt = s.CreatedAt
+	t.UpdatedAt = s.UpdatedAt
+}
+
+// WithPolicies anexa regras de transição customizadas à transação.
+func (t *Transaction) WithPolicies(policies ...TransitionPolicy) *Transaction {
+	t.policies = append(t.policies, policies...)
+	return t
+}
+
+// TransitionTo avalia a mudança de estado contra todas as políticas injetadas.
+func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error) {
+	// Chain of Responsibility: Todas as políticas devem passar
+	for _, p := range t.policies {
+		if err := p.Evaluate(ctx, t, newState); err != nil {
+			return nil, err
+		}
+	}
+
 	// Se for exatamente o mesmo, é idempotente no domínio
 	if t.status == newState {
 		return nil, nil
 	}
 
-	switch t.status {
-	case StatusPending:
-		if newState == StatusConfirmed || newState == StatusReceived || newState == StatusPaid {
-			t.status = newState
-			return NewOutboxEvent(uuid.New().String(), "PAYMENT_CONFIRMED", []byte(t.ID), metadata), nil
-		}
-		if newState == StatusFailed {
-			t.status = newState
-			return NewOutboxEvent(uuid.New().String(), "PAYMENT_FAILED", []byte(t.ID), metadata), nil
-		}
-	case StatusPaid, StatusReceived, StatusConfirmed:
-		if newState == StatusRefundInitiated {
-			t.status = newState
-			return NewOutboxEvent(uuid.New().String(), "REFUND_STARTED", []byte(t.ID), metadata), nil
-		}
+	// Efeito Colateral: Mudança de Estado
+	t.status = newState
+	t.UpdatedAt = time.Now()
+
+	// Mapeamento de Eventos (Pode ser abstraído para Policy futuramente se necessário)
+	eventType := "PAYMENT_UPDATED"
+	if newState == StatusPaid || newState == StatusReceived || newState == StatusConfirmed {
+		eventType = "PAYMENT_CONFIRMED"
+	} else if newState == StatusFailed {
+		eventType = "PAYMENT_FAILED"
+	} else if newState == StatusRefundInitiated {
+		eventType = "REFUND_STARTED"
 	}
-	return nil, errors.New("fsm_violation: illegal state transition")
+
+	return NewOutboxEvent(uuid.New().String(), eventType, []byte(t.ID), metadata), nil
 }
 
 func NewTransaction(id, customerID, providerID string, amount float64, description string, dueDate time.Time) *Transaction {
-	return &Transaction{
+	tx := &Transaction{
 		ID:          id,
 		CustomerID:  customerID,
 		ProviderID:  providerID,
@@ -80,18 +142,7 @@ func NewTransaction(id, customerID, providerID string, amount float64, descripti
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
-}
-
-// RebuildFromRepository permite que a camada de infraestrutura reconstrua o estado
-// de uma transação persistida sem violar a soberania da FSM.
-func RebuildFromRepository(id, customerID, providerID string, status PaymentStatus, amount float64, description string, dueDate time.Time) *Transaction {
-	return &Transaction{
-		ID:          id,
-		CustomerID:  customerID,
-		ProviderID:  providerID,
-		status:      status,
-		Amount:      amount,
-		Description: description,
-		DueDate:     dueDate,
-	}
+	// Garante a política padrão
+	tx.policies = append(tx.policies, &DefaultTransitionPolicy{})
+	return tx
 }
