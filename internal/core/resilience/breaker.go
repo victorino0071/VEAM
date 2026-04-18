@@ -49,8 +49,8 @@ func (cb *circuitBreaker) Allow(ctx context.Context) (bool, error) {
 	lastT := cb.lastTransition
 	cb.mu.RUnlock()
 
-	if state == StateOpen {
-		if time.Since(lastT) > cb.config.ResetTimeout {
+	if state == StateOpen || state == StateHalfOpen {
+		if state == StateOpen && time.Since(lastT) > cb.config.ResetTimeout {
 			// Escalonamento para Write Lock (Double-Check Locking)
 			cb.mu.Lock()
 			defer cb.mu.Unlock()
@@ -61,6 +61,11 @@ func (cb *circuitBreaker) Allow(ctx context.Context) (bool, error) {
 			}
 			return false, errors.New("circuit breaker is open (lost race to half-open)")
 		}
+
+		if state == StateHalfOpen {
+			return false, errors.New("circuit breaker is half-open (test in progress)")
+		}
+
 		return false, errors.New("circuit breaker is open")
 	}
 

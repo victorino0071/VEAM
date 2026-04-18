@@ -27,14 +27,16 @@ func NewWebhookHandler(repo port.Repository, adapter port.GatewayAdapter, provid
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Inicia Rastreamento (OpenTelemetry)
+	// 1. Inicia Rastreamento (OpenTelemetry) - Extraindo do Header primeiro
+	propagator := otel.GetTextMapPropagator()
+	ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
 	tracer := otel.Tracer("webhook-handler")
-	ctx, span := tracer.Start(r.Context(), "ReceiveWebhook")
+	ctx, span := tracer.Start(ctx, "ReceiveWebhook")
 	defer span.End()
 
 	// 2. W3C Context Injection (Metadata Carrier)
 	metadata := make(map[string]string)
-	propagator := otel.GetTextMapPropagator()
 	propagator.Inject(ctx, propagation.MapCarrier(metadata))
 	
 	// Validação de Versão Cega (Antifragilidade)
