@@ -89,12 +89,15 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 
 	// PHASE B: Execute Outside DB Transaction (Network I/O)
 	for _, event := range events {
-		// Extração de Contexto W3C
-		propagator := otel.GetTextMapPropagator()
-		carrier := propagation.MapCarrier(event.Metadata)
-		workerCtx := propagator.Extract(ctx, carrier)
-
+		workerCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(event.Metadata))
+		
 		slog.InfoContext(workerCtx, "[OutboxRelay] Enviando evento externo (Phase B)", "event_id", event.ID)
+		
+		// Aborta o processamento do resto do lote se o disjuntor abrir no meio (Intra-Batch Fail-Fast)
+		if state, _ := r.breaker.GetState(ctx); state == "OPEN" {
+			slog.WarnContext(ctx, "[OutboxRelay] Disjuntor abriu durante o lote. Abortando execução residual.")
+			break 
+		}
 
 		// O Payload contém o ID da Transação do Domínio
 		txID := string(event.Payload)

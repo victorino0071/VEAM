@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"github.com/Victor/payment-engine/domain/entity"
 	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/payment-engine/internal/core/acl"
 )
 
 type Adapter struct {
@@ -163,4 +164,18 @@ func (a *Adapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, erro
 		EventType:  evt.Event,
 		Payload:    body,
 	}, nil
+}
+
+func (a *Adapter) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+	var dto acl.WebhookDTO
+	if err := json.Unmarshal(payload, &dto); err != nil {
+		return nil, "", fmt.Errorf("falha ao deserializar payload asaas: %w", err)
+	}
+
+	tx, err := dto.Payment.ToDomain("asaas")
+	if err != nil {
+		return nil, "", err
+	}
+
+	return tx, acl.MapAsaasStatus(dto.Payment.Status), nil
 }

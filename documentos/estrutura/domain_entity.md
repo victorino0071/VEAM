@@ -11,14 +11,14 @@ Diferente de sistemas convencionais onde campos de estado são exportados, a ent
 
 -   **Estado Privado (`status`):** O campo status é minúsculo e inalcançável fora do pacote comercial.
 -   **`TransactionSnapshot`:** Uma struct pública e imutável que representa o estado serializável da transação.
--   **`ToSnapshot()` & `ApplySnapshot(s)`:** Os únicos métodos para exportar e reidratar o estado via infraestrutura. Isso impede que o hospedeiro crie transações em estados arbitrários sem passar pela FSM.
+-   **`ToSnapshot()` & `RestoreTransaction(s)`:** O Snapshot exporta o estado imutável. A reidratação ocorre exclusivamente via a fábrica estática `RestoreTransaction`, que garante a auto-injeção de políticas de defesa no "nascimento" da entidade na memória. O antigo método `ApplySnapshot` foi removido para impossibilitar mutações em runtime.
 
 ## ⚙️ A Máquina de Estados Soberana (TransitionTo)
 
 Toda mutação de estado transacional é centralizada no método `TransitionTo`. Este método não possui lógica "chumbada", mas delega a validação a uma corrente de políticas.
 
 ```go
-func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, metadata map[string]string) (*OutboxEvent, error)
+func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, eventID string, metadata map[string]string) (*OutboxEvent, error)
 ```
 
 ### 💉 Injeção de Políticas (TransitionPolicy)

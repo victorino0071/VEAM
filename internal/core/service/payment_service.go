@@ -7,17 +7,19 @@ import (
 	"github.com/Victor/payment-engine/domain/registry"
 	"fmt"
 	"log/slog"
+
+	"github.com/google/uuid"
 )
 
 type PaymentService struct {
 	repo     port.Repository
-	registry *registry.ProviderRegistry
+	Registry *registry.ProviderRegistry
 }
 
 func NewPaymentService(repo port.Repository, reg *registry.ProviderRegistry) *PaymentService {
 	return &PaymentService{
 		repo:     repo,
-		registry: reg,
+		Registry: reg,
 	}
 }
 
@@ -36,7 +38,8 @@ func (s *PaymentService) ProcessPaymentWithMetadata(ctx context.Context, incomin
 			tx = incomingTx
 		}
 
-		event, err := tx.TransitionTo(txCtx, nextStatus, metadata)
+		eventID := uuid.New().String()
+		event, err := tx.TransitionTo(txCtx, nextStatus, eventID, metadata)
 		if err != nil {
 			return fmt.Errorf("transição inválida: %w", err)
 		}

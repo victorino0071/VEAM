@@ -40,7 +40,7 @@ func NewEngine(db *sql.DB) *Engine {
 	})
 
 	svc := service.NewPaymentService(repo, reg)
-	consumer := worker.NewInboxConsumer(repo, svc)
+	consumer := worker.NewInboxConsumer(repo, svc, reg)
 	relay := worker.NewOutboxRelay(repo, reg, cb)
 
 	return &Engine{
