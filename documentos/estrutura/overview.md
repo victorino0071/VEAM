@@ -1,7 +1,7 @@
 # Overview da Arquitetura: Payment Engine (Industrial Sovereign)
 **Caminho:** `documentos/estrutura/overview.md`
 
-Este documento é o **Índice Mestre** da biblioteca `github.com/Victor/payment-engine`. Nossa arquitetura evoluiu para um modelo **Industrial Sovereign**, focado em blindagem de estado, desacoplamento de escala e prudência operacional.
+Este documento é o **Índice Mestre** da biblioteca `github.com/Victor/VEAM`. Nossa arquitetura evoluiu para um modelo **Industrial Sovereign**, focado em blindagem de estado, desacoplamento de escala e prudência operacional.
 
 ---
 
@@ -34,7 +34,7 @@ Este documento é o **Índice Mestre** da biblioteca `github.com/Victor/payment-
 
 O ciclo de vida do motor segue um pipeline de segurança estrito:
 
-1.  **Phase 0 (Provision):** Execução do `payment-engine-cli migrate` via Init Container ou Pipeline.
+1.  **Phase 0 (Provision):** Execução do `VEAM-cli migrate` via Init Container ou Pipeline.
 2.  **Phase 1 (WIRING):** O hospedeiro instala a biblioteca e configura as dependências via `NewEngine`.
 3.  **Phase 2 (EXEC):** O hospedeiro decide o papel da instância:
     -   Instâncias de **Ingress** invocam `NewWebhookHandler`.

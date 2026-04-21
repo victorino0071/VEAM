@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/VEAM/domain/entity"
 
-	paymentengine "github.com/Victor/payment-engine"
-	"github.com/Victor/payment-engine/adapters/asaas"
-	"github.com/Victor/payment-engine/adapters/mercadopago"
+	veam "github.com/Victor/VEAM"
+	"github.com/Victor/VEAM/adapters/asaas"
+	"github.com/Victor/VEAM/adapters/mercadopago"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Driver Postgres
@@ -54,8 +54,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine := paymentengine.NewEngine(db).
-		WithTelemetry("payment-engine").
+	engine := veam.NewEngine(db).
+		WithTelemetry("VEAM").
 		RegisterProvider("asaas", asaas.NewAdapter(asaasKey, asaasSecret, asaasBase)).
 		RegisterProvider("mercadopago", mpRealAdapter)
 

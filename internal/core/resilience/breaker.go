@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/port"
 	"log/slog"
 )
 

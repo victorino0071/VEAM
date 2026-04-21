@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
 )
 
 // InternalSystemAdapter é uma porta de segurança para processamento endógeno do motor (Sagas).

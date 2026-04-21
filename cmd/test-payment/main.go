@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Victor/payment-engine/adapters/mercadopago"
-	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/VEAM/adapters/mercadopago"
+	"github.com/Victor/VEAM/domain/entity"
 	"github.com/joho/godotenv"
 )
 

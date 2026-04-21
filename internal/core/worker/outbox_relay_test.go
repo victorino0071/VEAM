@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/resilience"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/resilience"
 )
 
 type mockGateway struct {

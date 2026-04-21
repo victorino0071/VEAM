@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
 )
 
 // Response encapsula o resultado de uma operação simulada.

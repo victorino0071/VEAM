@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/service"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/service"
 )
 
 // MockRepository com RWMutex e Isolamento Físico via Snapshots

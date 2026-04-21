@@ -1,4 +1,4 @@
-module github.com/Victor/payment-engine
+module github.com/Victor/VEAM
 
 go 1.26.1
 

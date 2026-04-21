@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
-	"github.com/Victor/payment-engine/internal/core/repository/migration"
+	"github.com/Victor/VEAM/internal/core/repository/migration"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 	dsn := migrateCmd.String("dsn", defaultDSN, "Postgres DSN (ou use DATABASE_URL env)")
 
 	if len(os.Args) < 2 {
-		fmt.Println("Uso: payment-engine-cli <comando> [opções]")
+		fmt.Println("Uso: VEAM-cli <comando> [opções]")
 		fmt.Println("Comandos disponíveis: migrate")
 		os.Exit(1)
 	}

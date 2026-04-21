@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/registry"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/registry"
 )
 
 // MockRepository com Isolamento Físico e Sincronização Estrita (RWMutex)

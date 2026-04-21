@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/port"
 	"sync/atomic"
 	"fmt"
 	"sync"

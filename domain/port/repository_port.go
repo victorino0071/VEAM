@@ -1,7 +1,7 @@
 package port
 
 import (
-	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/VEAM/domain/entity"
 	"context"
 )
 

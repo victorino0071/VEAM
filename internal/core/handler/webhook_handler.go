@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
 	"errors"
 	"fmt"
 	"log/slog"

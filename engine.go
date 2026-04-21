@@ -1,17 +1,17 @@
-package paymentengine
+package veam
 
 import (
 	"context"
 	"database/sql"
-	"github.com/Victor/payment-engine/internal/core/service"
-	"github.com/Victor/payment-engine/internal/core/worker"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/repository"
-	"github.com/Victor/payment-engine/internal/core/resilience"
-	"github.com/Victor/payment-engine/internal/core/telemetry"
-	"github.com/Victor/payment-engine/internal/core/acl"
-	"github.com/Victor/payment-engine/internal/core/handler"
+	"github.com/Victor/VEAM/internal/core/service"
+	"github.com/Victor/VEAM/internal/core/worker"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/repository"
+	"github.com/Victor/VEAM/internal/core/resilience"
+	"github.com/Victor/VEAM/internal/core/telemetry"
+	"github.com/Victor/VEAM/internal/core/acl"
+	"github.com/Victor/VEAM/internal/core/handler"
 	"net/http"
 	"fmt"
 	"time"

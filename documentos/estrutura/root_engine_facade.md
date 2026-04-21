@@ -10,7 +10,7 @@ O arquivo `engine.go` atua como o **único ponto de entrada público** para orqu
 O motor não inicia processos em background automaticamente. O hospedeiro deve decidir o papel (Role) da instância invocando métodos explícitos.
 
 ```go
-engine := paymentengine.NewEngine(db).
+engine := veam.NewEngine(db).
     WithTelemetry("service-name").
     WithMaxRetries(5).
     RegisterProvider("asaas", adapter)
