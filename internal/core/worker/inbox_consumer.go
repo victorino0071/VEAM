@@ -2,11 +2,10 @@ package worker
 
 import (
 	"context"
-	"github.com/Victor/payment-engine/internal/core/acl"
-	"github.com/Victor/payment-engine/internal/core/service"
 	"github.com/Victor/payment-engine/domain/entity"
 	"github.com/Victor/payment-engine/domain/port"
-	"encoding/json"
+	"github.com/Victor/payment-engine/domain/registry"
+	"github.com/Victor/payment-engine/internal/core/service"
 	"log/slog"
 	"time"
 
@@ -15,22 +14,24 @@ import (
 )
 
 type InboxConsumer struct {
-	repo    port.Repository
-	service *service.PaymentService
-	baseT   time.Duration
-	maxT    time.Duration
-	k       int
-	quit    chan struct{}
+	repo     port.Repository
+	service  *service.PaymentService
+	registry *registry.ProviderRegistry
+	baseT    time.Duration
+	maxT     time.Duration
+	k        int
+	quit     chan struct{}
 }
 
-func NewInboxConsumer(repo port.Repository, svc *service.PaymentService) *InboxConsumer {
+func NewInboxConsumer(repo port.Repository, svc *service.PaymentService, reg *registry.ProviderRegistry) *InboxConsumer {
 	return &InboxConsumer{
-		repo:    repo,
-		service: svc,
-		baseT:   500 * time.Millisecond,
-		maxT:    30 * time.Second,
-		k:       0,
-		quit:    make(chan struct{}),
+		repo:     repo,
+		service:  svc,
+		registry: reg,
+		baseT:    500 * time.Millisecond,
+		maxT:     30 * time.Second,
+		k:        0,
+		quit:     make(chan struct{}),
 	}
 }
 
@@ -100,24 +101,28 @@ func (c *InboxConsumer) consume(ctx context.Context) int {
 }
 
 func (c *InboxConsumer) processEvent(ctx context.Context, event *entity.InboxEvent) bool {
-	var webhook acl.WebhookDTO
-	if err := json.Unmarshal(event.Payload, &webhook); err != nil {
-		slog.ErrorContext(ctx, "[InboxConsumer] Falha na tradução de Payload JSON (ACL)", "error", err, "id", event.ID)
+	providerID, ok := event.Metadata["provider_id"]
+	if !ok {
+		slog.ErrorContext(ctx, "[InboxConsumer] provider_id ausente no metadata", "id", event.ID)
 		return false
 	}
 
-	providerID := event.Metadata["provider_id"]
-	tx, err := webhook.Payment.ToDomain(providerID)
+	adapter, err := c.registry.Get(providerID)
 	if err != nil {
-		slog.ErrorContext(ctx, "[InboxConsumer] Falha no mapeamento para entidade de Domínio", "error", err, "id", event.ID)
+		slog.ErrorContext(ctx, "[InboxConsumer] adaptador não encontrado para provedor", "provider_id", providerID, "error", err)
 		return false
 	}
 
-	slog.InfoContext(ctx, "[InboxConsumer] Evento traduzido com sucesso para Domínio", "id", tx.ID, "target_status", tx.Status())
-
-	err = c.service.ProcessPaymentWithMetadata(ctx, tx, event.Metadata, tx.Status())
+	tx, targetStatus, err := adapter.TranslatePayload(event.Payload)
 	if err != nil {
-		slog.WarnContext(ctx, "Falha no domínio", "error", err)
+		slog.ErrorContext(ctx, "[InboxConsumer] falha na tradução delegada via adaptador", "provider_id", providerID, "error", err)
+		return false
+	}
+
+	slog.InfoContext(ctx, "[InboxConsumer] Evento traduzido com sucesso via Adaptador", "id", tx.ID, "target_status", targetStatus)
+
+	if err := c.service.ProcessPaymentWithMetadata(ctx, tx, event.Metadata, targetStatus); err != nil {
+		slog.WarnContext(ctx, "Falha no domínio via Service", "error", err)
 		return false
 	}
 

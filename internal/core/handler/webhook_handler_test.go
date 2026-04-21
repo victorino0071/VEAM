@@ -47,6 +47,10 @@ func (m *mockHandlerAdapter) TranslateWebhook(r *http.Request) (*port.WebhookRes
 		Payload:    []byte(`{"status":"paid"}`),
 	}, nil
 }
+func (m *mockHandlerAdapter) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+	return nil, "", nil
+}
+
 
 func TestWebhookHandler_OTel_Trace_Propagation(t *testing.T) {
 	// 1. Setup OpenTelemetry (Trace Provider + Propagator)

@@ -18,7 +18,7 @@ func EnsureSchema(db *sql.DB) error {
 	slog.Info("[Migrator] Iniciando verificação de esquema...")
 
 	// 1. Garante que a tabela de controle exista
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS github.com/Victor/payment-engine_migrations (
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS payment_engine_migrations (
 		version int PRIMARY KEY,
 		applied_at timestamp DEFAULT now()
 	);`)
@@ -28,7 +28,7 @@ func EnsureSchema(db *sql.DB) error {
 
 	// 2. Recupera a versão atual
 	var currentVersion int
-	err = db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM github.com/Victor/payment-engine_migrations").Scan(&currentVersion)
+	err = db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM payment_engine_migrations").Scan(&currentVersion)
 	if err != nil {
 		return fmt.Errorf("falha ao buscar versão atual: %w", err)
 	}
@@ -75,7 +75,7 @@ func EnsureSchema(db *sql.DB) error {
 				return fmt.Errorf("falha ao executar migração %s: %w", fileName, err)
 			}
 
-			if _, err := tx.Exec("INSERT INTO github.com/Victor/payment-engine_migrations (version) VALUES ($1)", version); err != nil {
+			if _, err := tx.Exec("INSERT INTO payment_engine_migrations (version) VALUES ($1)", version); err != nil {
 				tx.Rollback()
 				return fmt.Errorf("falha ao atualizar tabela de versão: %w", err)
 			}

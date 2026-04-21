@@ -16,6 +16,7 @@ type GatewayAdapter interface {
 	// Webhook Methods (Universal ACL)
 	ValidateWebhook(r *http.Request) (bool, error)
 	TranslateWebhook(r *http.Request) (*WebhookResponse, error)
+	TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error)
 }
 
 // WebhookResponse normaliza o que vem da rua para o que o motor entende.

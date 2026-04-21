@@ -40,6 +40,10 @@ func (m *mockGateway) ValidateWebhook(r *http.Request) (bool, error) { return tr
 func (m *mockGateway) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{ExternalID: "ext-1", EventType: "PAYMENT_RECEIVED", Payload: []byte("{}")}, nil
 }
+func (m *mockGateway) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+	return nil, "", nil
+}
+
 
 // Mock de repositório focado apenas no Outbox Relay
 type mockRelayRepo struct {

@@ -37,7 +37,7 @@ func (a *AsaasPaymentDTO) ToDomain(providerID string) (*entity.Transaction, erro
 	return tx, nil
 }
 
-func mapAsaasStatus(asaasStatus string) entity.PaymentStatus {
+func MapAsaasStatus(asaasStatus string) entity.PaymentStatus {
 	switch asaasStatus {
 	case "RECEIVED", "CONFIRMED":
 		return entity.StatusReceived

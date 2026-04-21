@@ -13,13 +13,13 @@ import (
 
 type PaymentService struct {
 	repo     port.Repository
-	registry *registry.ProviderRegistry
+	Registry *registry.ProviderRegistry
 }
 
 func NewPaymentService(repo port.Repository, reg *registry.ProviderRegistry) *PaymentService {
 	return &PaymentService{
 		repo:     repo,
-		registry: reg,
+		Registry: reg,
 	}
 }
 

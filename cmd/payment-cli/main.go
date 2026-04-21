@@ -8,10 +8,12 @@ import (
 	"os"
 
 	_ "github.com/lib/pq"
+	"github.com/joho/godotenv"
 	"github.com/Victor/payment-engine/internal/core/repository/migration"
 )
 
 func main() {
+	_ = godotenv.Load()
 	migrateCmd := flag.NewFlagSet("migrate", flag.ExitOnError)
 	dsn := migrateCmd.String("dsn", os.Getenv("DATABASE_URL"), "Postgres DSN (ou use DATABASE_URL env)")
 
