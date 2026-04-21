@@ -21,9 +21,10 @@ type Engine struct {
 	Registry *registry.ProviderRegistry
 	Service  *service.PaymentService
 	Consumer *worker.InboxConsumer
-	Relay    *worker.OutboxRelay
-	Breaker  port.CircuitBreaker
-	db       *sql.DB
+	Relay      *worker.OutboxRelay
+	Breaker    port.CircuitBreaker
+	db         *sql.DB
+	MaxRetries int
 }
 
 // NewEngine inicializa a fundação do motor sobre uma conexão Postgres.
@@ -40,18 +41,27 @@ func NewEngine(db *sql.DB) *Engine {
 	})
 
 	svc := service.NewPaymentService(repo, reg)
-	consumer := worker.NewInboxConsumer(repo, svc, reg)
-	relay := worker.NewOutboxRelay(repo, reg, cb)
+	consumer := worker.NewInboxConsumer(repo, svc, reg, 5) // Defaults to 5
+	relay := worker.NewOutboxRelay(repo, reg, cb, 5) // Defaults to 5
 
 	return &Engine{
 		Repo:     repo,
 		Registry: reg,
 		Service:  svc,
 		Consumer: consumer,
-		Relay:    relay,
-		Breaker:  cb,
-		db:       db,
+		Relay:      relay,
+		Breaker:    cb,
+		db:         db,
+		MaxRetries: 5,
 	}
+}
+
+// WithMaxRetries define o limite de tentativas antes do DLQ
+func (e *Engine) WithMaxRetries(limit int) *Engine {
+	e.MaxRetries = limit
+	e.Consumer.SetMaxRetries(limit)
+	e.Relay.SetMaxRetries(limit)
+	return e
 }
 
 // WithTelemetry atacha a observabilidade no motor.
@@ -93,4 +103,14 @@ func (e *Engine) RelayOutbox(ctx context.Context) error {
 func (e *Engine) Start(ctx context.Context) {
 	go e.ConsumeInbox(ctx)
 	go e.RelayOutbox(ctx)
+}
+
+// ReplayInboxDLQ resgata um evento do purgatório lógico.
+func (e *Engine) ReplayInboxDLQ(ctx context.Context, eventID string) error {
+	return e.Repo.ReplayInboxDLQ(ctx, eventID)
+}
+
+// ReplayOutboxDLQ resgata um evento do purgatório lógico.
+func (e *Engine) ReplayOutboxDLQ(ctx context.Context, eventID string) error {
+	return e.Repo.ReplayOutboxDLQ(ctx, eventID)
 }

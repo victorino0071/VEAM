@@ -64,9 +64,13 @@ func (m *MockRepository) SaveInboxEvent(ctx context.Context, event *entity.Inbox
 func (m *MockRepository) ClaimInboxEvents(ctx context.Context, limit int) ([]*entity.InboxEvent, error)   { return nil, nil }
 func (m *MockRepository) ClaimOutboxEvents(ctx context.Context, limit int) ([]*entity.OutboxEvent, error) { return nil, nil }
 func (m *MockRepository) MarkInboxCompleted(ctx context.Context, id string) error                     { return nil }
-func (m *MockRepository) MarkInboxFailed(ctx context.Context, id string) error                        { return nil }
+func (m *MockRepository) MarkInboxFailed(ctx context.Context, id string, errStr string) error                        { return nil }
+func (m *MockRepository) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
 func (m *MockRepository) MarkOutboxCompleted(ctx context.Context, id string) error                    { return nil }
-func (m *MockRepository) MarkOutboxFailed(ctx context.Context, id string) error                       { return nil }
+func (m *MockRepository) MarkOutboxFailed(ctx context.Context, id string, errStr string) error                       { return nil }
+func (m *MockRepository) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
+func (m *MockRepository) ReplayInboxDLQ(ctx context.Context, id string) error { return nil }
+func (m *MockRepository) ReplayOutboxDLQ(ctx context.Context, id string) error { return nil }
 
 func TestPaymentService_ProcessPayment_ACID_Memory(t *testing.T) {
 	repo := NewMockRepository()

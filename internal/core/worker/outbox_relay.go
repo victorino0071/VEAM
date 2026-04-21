@@ -8,29 +8,37 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type OutboxRelay struct {
 	repo     port.Repository
 	registry *registry.ProviderRegistry
-	breaker  port.CircuitBreaker
-	baseT    time.Duration
-	maxT     time.Duration
-	k        int
-	quit     chan struct{}
+	breaker    port.CircuitBreaker
+	baseT      time.Duration
+	maxT       time.Duration
+	k          int
+	maxRetries int
+	quit       chan struct{}
 }
 
-func NewOutboxRelay(repo port.Repository, reg *registry.ProviderRegistry, breaker port.CircuitBreaker) *OutboxRelay {
+func NewOutboxRelay(repo port.Repository, reg *registry.ProviderRegistry, breaker port.CircuitBreaker, maxRetries int) *OutboxRelay {
 	return &OutboxRelay{
-		repo:     repo,
-		registry: reg,
-		breaker:  breaker,
-		baseT:    500 * time.Millisecond,
-		maxT:     30 * time.Second,
-		k:        0,
-		quit:     make(chan struct{}),
+		repo:       repo,
+		registry:   reg,
+		breaker:    breaker,
+		baseT:      500 * time.Millisecond,
+		maxT:       30 * time.Second,
+		k:          0,
+		maxRetries: maxRetries,
+		quit:       make(chan struct{}),
 	}
+}
+
+func (r *OutboxRelay) SetMaxRetries(limit int) {
+	r.maxRetries = limit
 }
 
 func (r *OutboxRelay) Start(ctx context.Context) {
@@ -91,6 +99,16 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 	for _, event := range events {
 		workerCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(event.Metadata))
 		
+		queueDuration := time.Since(event.CreatedAt).Milliseconds()
+		tracer := otel.Tracer("outbox-relay")
+		workerCtx, span := tracer.Start(workerCtx, "RelayOutboxEvent", 
+			trace.WithAttributes(
+				attribute.Int64("messaging.message.time_in_queue_ms", queueDuration),
+				attribute.String("event.id", event.ID),
+				attribute.String("event.type", event.EventType),
+			),
+		)
+
 		slog.InfoContext(workerCtx, "[OutboxRelay] Enviando evento externo (Phase B)", "event_id", event.ID)
 		
 		// Aborta o processamento do resto do lote se o disjuntor abrir no meio (Intra-Batch Fail-Fast)
@@ -138,10 +156,20 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 				slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Completed)", "error", err, "id", event.ID)
 			}
 		} else {
-			if err := r.repo.MarkOutboxFailed(ctx, event.ID); err != nil {
-				slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Failed)", "error", err, "id", event.ID)
+			if event.RetryCount >= r.maxRetries {
+				if err := r.repo.MoveOutboxToDLQ(ctx, event.ID, err.Error()); err != nil {
+					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (DLQ)", "error", err, "id", event.ID)
+				} else {
+					slog.WarnContext(workerCtx, "[OutboxRelay] Outbox Event arquivado na DLQ (Poison Pill)", "id", event.ID, "last_error", err.Error())
+				}
+			} else {
+				if err := r.repo.MarkOutboxFailed(ctx, event.ID, err.Error()); err != nil {
+					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Failed)", "error", err, "id", event.ID)
+				}
 			}
+			span.SetAttributes(attribute.String("error.message", err.Error()))
 		}
+		span.End()
 	}
 
 	return len(events)

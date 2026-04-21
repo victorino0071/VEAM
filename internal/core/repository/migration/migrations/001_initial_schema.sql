@@ -15,13 +15,13 @@ CREATE TABLE IF NOT EXISTS inbox (
     metadata JSONB NOT NULL DEFAULT '{}',
     status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     retry_count INT NOT NULL DEFAULT 0,
+    last_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     processed_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_inbox_pending ON inbox (status) WHERE status = 'PENDING';
-CREATE INDEX IF NOT EXISTS idx_inbox_dlq ON inbox (status) WHERE status = 'DLQ';
+CREATE INDEX IF NOT EXISTS idx_inbox_active_claim ON inbox (created_at) WHERE status = 'PENDING';
 
 CREATE TABLE IF NOT EXISTS outbox (
     id UUID,
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     metadata JSONB NOT NULL DEFAULT '{}',
     status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     retry_count INT NOT NULL DEFAULT 0,
+    last_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     processed_at TIMESTAMP,
     PRIMARY KEY (id, created_at)
@@ -42,7 +43,7 @@ DO $$ BEGIN
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox (status) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS idx_outbox_active_claim ON outbox (created_at) WHERE status = 'PENDING';
 
 -- Domain Specific Tables
 CREATE TABLE IF NOT EXISTS transactions (

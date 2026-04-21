@@ -16,9 +16,16 @@ type Repository interface {
 
 	// Phase C: Finalize (Update Status + Commit)
 	MarkInboxCompleted(ctx context.Context, id string) error
-	MarkInboxFailed(ctx context.Context, id string) error
+	MarkInboxFailed(ctx context.Context, id string, errStr string) error
+	MoveInboxToDLQ(ctx context.Context, id string, errStr string) error
+	
 	MarkOutboxCompleted(ctx context.Context, id string) error
-	MarkOutboxFailed(ctx context.Context, id string) error
+	MarkOutboxFailed(ctx context.Context, id string, errStr string) error
+	MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error
+
+	// Replay DLQ
+	ReplayInboxDLQ(ctx context.Context, id string) error
+	ReplayOutboxDLQ(ctx context.Context, id string) error
 
 	// Domínio
 	GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error)

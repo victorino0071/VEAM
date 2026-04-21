@@ -40,7 +40,7 @@ func (m *mockGateway) ValidateWebhook(r *http.Request) (bool, error) { return tr
 func (m *mockGateway) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{ExternalID: "ext-1", EventType: "PAYMENT_RECEIVED", Payload: []byte("{}")}, nil
 }
-func (m *mockGateway) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+func (m *mockGateway) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	return nil, "", nil
 }
 
@@ -81,7 +81,10 @@ func (m *mockRelayRepo) ClaimOutboxEvents(ctx context.Context, limit int) ([]*en
 }
 
 func (m *mockRelayRepo) MarkInboxCompleted(ctx context.Context, id string) error { return nil }
-func (m *mockRelayRepo) MarkInboxFailed(ctx context.Context, id string) error    { return nil }
+func (m *mockRelayRepo) MarkInboxFailed(ctx context.Context, id string, errStr string) error    { return nil }
+func (m *mockRelayRepo) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
+func (m *mockRelayRepo) ReplayInboxDLQ(ctx context.Context, id string) error { return nil }
+func (m *mockRelayRepo) ReplayOutboxDLQ(ctx context.Context, id string) error { return nil }
 
 func (m *mockRelayRepo) MarkOutboxCompleted(ctx context.Context, id string) error {
 	m.mu.Lock()
@@ -90,7 +93,14 @@ func (m *mockRelayRepo) MarkOutboxCompleted(ctx context.Context, id string) erro
 	return nil
 }
 
-func (m *mockRelayRepo) MarkOutboxFailed(ctx context.Context, id string) error {
+func (m *mockRelayRepo) MarkOutboxFailed(ctx context.Context, id string, errStr string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failedIDs = append(m.failedIDs, id)
+	return nil
+}
+
+func (m *mockRelayRepo) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failedIDs = append(m.failedIDs, id)
@@ -126,7 +136,7 @@ func TestOutboxRelay_Sociable_Resilience(t *testing.T) {
 		}
 	}
 
-	relay := NewOutboxRelay(repo, reg, breaker)
+	relay := NewOutboxRelay(repo, reg, breaker, 5)
 
 	// --- CENÁRIO A: Backpressure (Shrinking Batch) ---
 	// Forçamos uma falha manual no breaker para elevar P(F)

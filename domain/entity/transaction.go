@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -33,6 +34,7 @@ type TransactionSnapshot struct {
 	PaymentDate   *time.Time
 	ConfirmedDate *time.Time
 	ProviderID    string
+	Metadata      map[string]string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -48,10 +50,35 @@ type Transaction struct {
 	PaymentDate   *time.Time
 	ConfirmedDate *time.Time
 	ProviderID    string
+	metadata      map[string]string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	mu            sync.RWMutex
 
 	policies []TransitionPolicy // Políticas injetáveis para validação de FSM
+}
+
+func (t *Transaction) GetMetadata(key string, fallback string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.metadata == nil {
+		return fallback
+	}
+	if val, ok := t.metadata[key]; ok {
+		return val
+	}
+	return fallback
+}
+
+func (t *Transaction) SetMetadata(key, value string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.metadata == nil {
+		t.metadata = make(map[string]string)
+	}
+	t.metadata[key] = value
 }
 
 func (t *Transaction) Status() PaymentStatus {
@@ -59,6 +86,9 @@ func (t *Transaction) Status() PaymentStatus {
 }
 
 func (t *Transaction) ToSnapshot() TransactionSnapshot {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	s := TransactionSnapshot{
 		ID:            t.ID,
 		CustomerID:    t.CustomerID,
@@ -68,8 +98,13 @@ func (t *Transaction) ToSnapshot() TransactionSnapshot {
 		Description:   t.Description,
 		DueDate:       t.DueDate,
 		ProviderID:    t.ProviderID,
+		Metadata:      make(map[string]string, len(t.metadata)),
 		CreatedAt:     t.CreatedAt,
 		UpdatedAt:     t.UpdatedAt,
+	}
+
+	for k, v := range t.metadata {
+		s.Metadata[k] = v
 	}
 	if t.PaymentDate != nil {
 		d := *t.PaymentDate
@@ -95,8 +130,13 @@ func RestoreTransaction(s TransactionSnapshot) *Transaction {
 		Description:   s.Description,
 		DueDate:       s.DueDate,
 		ProviderID:    s.ProviderID,
+		metadata:      make(map[string]string, len(s.Metadata)),
 		CreatedAt:     s.CreatedAt,
 		UpdatedAt:     s.UpdatedAt,
+	}
+
+	for k, v := range s.Metadata {
+		t.metadata[k] = v
 	}
 	if s.PaymentDate != nil {
 		d := *s.PaymentDate
@@ -160,6 +200,7 @@ func NewTransaction(id, customerID, providerID string, amount float64, descripti
 		status:      StatusPending,
 		Description: description,
 		DueDate:     dueDate,
+		metadata:    make(map[string]string),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}

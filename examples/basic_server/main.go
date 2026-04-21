@@ -13,6 +13,7 @@ import (
 
 	paymentengine "github.com/Victor/payment-engine"
 	"github.com/Victor/payment-engine/adapters/asaas"
+	"github.com/Victor/payment-engine/adapters/mercadopago"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Driver Postgres
@@ -37,10 +38,17 @@ func main() {
 	}
 	defer db.Close()
 
-	// 2. Setup do Motor via Builder Pattern (Facade)
+	// Substituído para respeitar a inicialização correta com error handling do Mercado Pago:
+	mpRealAdapter, err := mercadopago.NewAdapter(providerKey, getEnv("GATEWAY_WEBHOOK_SECRET", "secret"))
+	if err != nil {
+		slog.Error("Falha ao configurar Mercado Pago", "error", err)
+		os.Exit(1)
+	}
+
 	engine := paymentengine.NewEngine(db).
 		WithTelemetry("payment-engine").
-		RegisterProvider("asaas", asaas.NewAdapter(providerKey, providerBase))
+		RegisterProvider("asaas", asaas.NewAdapter(providerKey, providerBase)).
+		RegisterProvider("mercadopago", mpRealAdapter)
 
 	// 3. Inicia Background Workers
 	ctx, cancel := context.WithCancel(context.Background())

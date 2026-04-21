@@ -9,6 +9,7 @@ type OutboxEvent struct {
 	Payload     []byte
 	Status      string
 	RetryCount  int
+	LastError   *string
 	CreatedAt   time.Time
 	ProcessedAt *time.Time
 }
@@ -33,6 +34,7 @@ type InboxEvent struct {
 	Payload     []byte
 	Status      string
 	RetryCount  int
+	LastError   *string
 	CreatedAt   time.Time
 	ProcessedAt *time.Time
 }
