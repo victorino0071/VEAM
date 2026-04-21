@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/Victor/payment-engine/domain/entity"
+
 	paymentengine "github.com/Victor/payment-engine"
 	"github.com/Victor/payment-engine/adapters/asaas"
 	"github.com/Victor/payment-engine/adapters/mercadopago"
@@ -67,6 +70,77 @@ func main() {
 	mux.Handle("/webhooks/mercadopago", engine.NewWebhookHandler("mercadopago"))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "OK")
+	})
+
+	// 4.1 Endpoint de Teste: Criar Pagamento Mercado Pago
+	mux.HandleFunc("/test/mp/create", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var input struct {
+			Amount      float64 `json:"amount"`
+			Email       string  `json:"email"`
+			Description string  `json:"description"`
+			Token       string  `json:"token"`
+			CPF         string  `json:"cpf"`
+			Installments int    `json:"installments"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "JSON inválido", http.StatusBadRequest)
+			return
+		}
+
+		// 1. Criar Transação de Domínio (PENDING)
+		txID := uuid.New().String()
+		productDueDate := time.Now().Add(24 * time.Hour)
+		tx := entity.NewTransaction(txID, "customer-test-1", "mercadopago", input.Amount, input.Description, productDueDate)
+		
+		// Metadados para o Mercado Pago
+		tx.SetMetadata("payer_email", input.Email)
+		if input.Token != "" {
+			tx.SetMetadata("card_token", input.Token)
+			tx.SetMetadata("payment_method_id", "master")
+			if input.Installments > 0 {
+				tx.SetMetadata("installments", fmt.Sprintf("%d", input.Installments))
+			} else {
+				tx.SetMetadata("installments", "1")
+			}
+			if input.CPF != "" {
+				tx.SetMetadata("payer_identification_number", input.CPF)
+			}
+		} else {
+			tx.SetMetadata("payment_method_id", "pix")
+		}
+
+		// 2. Criar no Provedor através do Adapter
+		adapter, _ := engine.Registry.Get("mercadopago")
+		externalID, err := adapter.CreateTransaction(context.Background(), tx)
+		if err != nil {
+			slog.Error("Erro ao criar no MP", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// 3. Atualizar com ID Externo e Persistir localmente
+		// Isso é vital para que o Webhook consiga correlacionar depois
+		tx.SetMetadata("external_id", externalID)
+		if err := engine.Repo.SaveTransaction(context.Background(), tx); err != nil {
+			slog.Error("Erro ao salvar localmente", "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		slog.Info("Pagamento de teste criado com sucesso", "internal_id", txID, "external_id", externalID)
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "created",
+			"internal_id": txID,
+			"external_id": externalID,
+			"message":     "Aguarde o webhook no ngrok!",
+		})
 	})
 
 	// 4.1 Endpoint Administrativo de Rotação (Referência de Operações)

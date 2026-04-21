@@ -82,7 +82,21 @@ func (a *Adapter) CreateTransaction(ctx context.Context, tx *entity.Transaction)
 		PaymentMethodID:   paymentMethod,
 		Payer: &payment.PayerRequest{
 			Email: payerEmail,
+			Identification: &payment.IdentificationRequest{
+				Type:   tx.GetMetadata("payer_identification_type", "CPF"),
+				Number: tx.GetMetadata("payer_identification_number", "19119119100"),
+			},
 		},
+		Token:        tx.GetMetadata("card_token", ""),
+		Installments: 1, // Por padrão em teste
+		ExternalReference: tx.ID,
+	}
+
+	// Tenta converter parcelas se fornecido
+	if inst := tx.GetMetadata("installments", ""); inst != "" {
+		if val, err := strconv.Atoi(inst); err == nil {
+			request.Installments = val
+		}
 	}
 
 	tracer := otel.Tracer("mercadopago-adapter")
@@ -307,6 +321,11 @@ func (a *Adapter) TranslatePayload(ctx context.Context, payload []byte) (*entity
 	tx, err := acl.ToDomainFromMPPayment(result, "mercadopago")
 	if err != nil {
 		return nil, "", err
+	}
+
+	// Sobrescreve o ID com a nossa referência externa se ela existir
+	if result.ExternalReference != "" {
+		tx.ID = result.ExternalReference
 	}
 
 	return tx, acl.MapMercadoPagoStatus(result.Status), nil

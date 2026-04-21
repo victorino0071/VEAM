@@ -12,8 +12,12 @@ O motor não inicia processos em background automaticamente. O hospedeiro deve d
 ```go
 engine := paymentengine.NewEngine(db).
     WithTelemetry("service-name").
+    WithMaxRetries(5).
     RegisterProvider("asaas", adapter)
 ```
+
+### ⚙️ Configuração de Resiliência
+- **`WithMaxRetries(limit)`**: Define o número máximo de tentativas de processamento para eventos de Inbox e Outbox antes de serem movidos para a DLQ (Dead Letter Queue). O padrão industrial é de 5 tentativas.
 
 ### 🚨 Aviso sobre Migrações
 O método `WithAutoMigrate()` foi removido do fluxo de runtime para prevenir contenção de locks DDL em ambientes escalados horizontalmente. As migrações devem ser executadas via **[Engine CLI](cli_operations.md)**.
@@ -35,6 +39,13 @@ Para pods dedicados ao processamento pesado.
 
 ### 3. Modo Monolítico
 -   **`Start(ctx)`**: Helper que dispara os workers em goroutines separadas (útil para desenvolvimento local).
+
+### 4. Manutenção e Recuperação (DLQ)
+-   **`ReplayInboxDLQ(ctx, eventID)`**: Move um evento da DLQ do Inbox de volta para a fila de processamento.
+-   **`ReplayOutboxDLQ(ctx, eventID)`**: Move um evento da DLQ do Outbox de volta para a fila de despacho.
+
+### 5. Segurança Operacional
+-   **`RotateGatewaySecret(providerID, newSecret, gracePeriod)`**: Dispara a rotação dinâmica de chaves de assinatura de webhook para um provedor específico. Suporta um período de carência onde tanto a chave antiga quanto a nova são válidas, evitando *downtime* na ingestão durante a troca de segredos.
 
 ---
 

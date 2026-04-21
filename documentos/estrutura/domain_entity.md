@@ -34,7 +34,9 @@ type TransitionPolicy interface {
 Dessa forma, regras de antifraude, auditoria ou fluxos de captura bifásica podem ser injetados na entidade sem alterar seu código base.
 
 ### Geração de Outbox Atômico
-Ao realizar uma transição validada por todas as políticas, a entidade retorna um `OutboxEvent`. Isso garante a atomicidade entre a mudança de estado e a notificação aos sistemas periféricos.
+Ao realizar uma transição validada por todas as políticas, o método `TransitionTo` retorna um `OutboxEvent`. 
+- **Atomicidade:** Esse evento deve ser persistido na mesma transação de banco de dados que a alteração do estado da entidade (`ACID`).
+- **Consistência Eventual:** O `OutboxRelay` posterior lerá este evento para notificar sistemas externos, garantindo que o mundo exterior reflita o estado soberano do domínio.
 
 ---
 
