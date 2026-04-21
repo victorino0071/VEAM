@@ -104,7 +104,9 @@ func (m *MockAdapter) CreateTransaction(ctx context.Context, tx *entity.Transact
 func (m *MockAdapter) GetTransactionState(ctx context.Context, id string) (entity.PaymentStatus, error) {
 	return "", nil
 }
-func (m *MockAdapter) RefundTransaction(ctx context.Context, id string) error { return nil }
+func (m *MockAdapter) RefundTransaction(ctx context.Context, transactionID string, idempotencyKey string) error {
+	return nil
+}
 func (m *MockAdapter) ValidateWebhook(r *http.Request) (bool, error)       { return true, nil }
 func (m *MockAdapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return nil, nil

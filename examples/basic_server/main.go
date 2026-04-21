@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,8 +24,13 @@ import (
 func main() {
 	_ = godotenv.Load()
 
-	providerKey := getEnv("GATEWAY_API_KEY", "")
-	providerBase := getEnv("GATEWAY_BASE_URL", "https://sandbox.asaas.com/api/v3")
+	asaasKey := getEnv("ASAAS_API_KEY", "")
+	asaasSecret := getEnv("ASAAS_WEBHOOK_ACCESS_TOKEN", "")
+	asaasBase := getEnv("ASAAS_BASE_URL", "https://sandbox.asaas.com/api/v3")
+	
+	mpToken := getEnv("MP_ACCESS_TOKEN", "")
+	mpSecret := getEnv("MP_WEBHOOK_SECRET", "secret")
+
 	httpPort := getEnv("HTTP_PORT", "8080")
 
 	// 1. Conexão com Banco de Dados
@@ -38,8 +45,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// Substituído para respeitar a inicialização correta com error handling do Mercado Pago:
-	mpRealAdapter, err := mercadopago.NewAdapter(providerKey, getEnv("GATEWAY_WEBHOOK_SECRET", "secret"))
+	mpRealAdapter, err := mercadopago.NewAdapter(mpToken, mpSecret)
 	if err != nil {
 		slog.Error("Falha ao configurar Mercado Pago", "error", err)
 		os.Exit(1)
@@ -47,7 +53,7 @@ func main() {
 
 	engine := paymentengine.NewEngine(db).
 		WithTelemetry("payment-engine").
-		RegisterProvider("asaas", asaas.NewAdapter(providerKey, providerBase)).
+		RegisterProvider("asaas", asaas.NewAdapter(asaasKey, asaasSecret, asaasBase)).
 		RegisterProvider("mercadopago", mpRealAdapter)
 
 	// 3. Inicia Background Workers
@@ -57,9 +63,45 @@ func main() {
 
 	// 4. Configura Rotas HTTP
 	mux := http.NewServeMux()
-	mux.Handle("/webhooks/provider", engine.NewWebhookHandler("asaas"))
+	mux.Handle("/webhooks/asaas", engine.NewWebhookHandler("asaas"))
+	mux.Handle("/webhooks/mercadopago", engine.NewWebhookHandler("mercadopago"))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "OK")
+	})
+
+	// 4.1 Endpoint Administrativo de Rotação (Referência de Operações)
+	mux.HandleFunc("/internal/system/rotate-keys", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Segurança básica para demonstração (Referência: mTLS ou RBAC em produção)
+		if r.Header.Get("X-Admin-Token") != getEnv("ADMIN_TOKEN", "secret-admin-token") {
+			http.Error(w, "Não autorizado", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			Provider     string `json:"provider"`
+			NewSecret    string `json:"new_secret"`
+			GraceSeconds int    `json:"grace_seconds"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Payload inválido", http.StatusBadRequest)
+			return
+		}
+
+		grace := time.Duration(req.GraceSeconds) * time.Second
+		if err := engine.RotateGatewaySecret(req.Provider, req.NewSecret, grace); err != nil {
+			slog.Error("Falha ao rotacionar chaves", "provider", req.Provider, "error", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		slog.Info("Rotação de chaves concluída com sucesso via API", "provider", req.Provider, "grace_period", grace)
+		w.WriteHeader(http.StatusAccepted)
 	})
 
 	server := &http.Server{Addr: ":" + httpPort, Handler: mux}
@@ -87,7 +129,8 @@ func main() {
 
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
-		return value
+		// Remove aspas simples ou duplas que podem ter sido colocadas para evitar expansão de $
+		return strings.Trim(strings.Trim(value, "'"), "\"")
 	}
 	return fallback
 }

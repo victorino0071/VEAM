@@ -13,9 +13,14 @@ import (
 )
 
 func main() {
+	// Carrega o .env explicitamente
 	_ = godotenv.Load()
+	
 	migrateCmd := flag.NewFlagSet("migrate", flag.ExitOnError)
-	dsn := migrateCmd.String("dsn", os.Getenv("DATABASE_URL"), "Postgres DSN (ou use DATABASE_URL env)")
+	
+	// Prioriza DATABASE_URL do ambiente se o flag não for passado
+	defaultDSN := os.Getenv("DATABASE_URL")
+	dsn := migrateCmd.String("dsn", defaultDSN, "Postgres DSN (ou use DATABASE_URL env)")
 
 	if len(os.Args) < 2 {
 		fmt.Println("Uso: payment-engine-cli <comando> [opções]")

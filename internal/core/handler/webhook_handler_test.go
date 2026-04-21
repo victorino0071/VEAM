@@ -42,7 +42,9 @@ type mockHandlerAdapter struct{}
 func (m *mockHandlerAdapter) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) { return "", nil }
 func (m *mockHandlerAdapter) CreateTransaction(ctx context.Context, transaction *entity.Transaction) (string, error) { return "", nil }
 func (m *mockHandlerAdapter) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) { return "", nil }
-func (m *mockHandlerAdapter) RefundTransaction(ctx context.Context, transactionID string) error { return nil }
+func (m *mockHandlerAdapter) RefundTransaction(ctx context.Context, txID string, idempotencyKey string) error {
+	return nil
+}
 func (m *mockHandlerAdapter) ValidateWebhook(r *http.Request) (bool, error) { return true, nil }
 func (m *mockHandlerAdapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{

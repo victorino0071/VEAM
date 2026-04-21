@@ -10,8 +10,10 @@ import (
 	"github.com/Victor/payment-engine/internal/core/repository"
 	"github.com/Victor/payment-engine/internal/core/resilience"
 	"github.com/Victor/payment-engine/internal/core/telemetry"
+	"github.com/Victor/payment-engine/internal/core/acl"
 	"github.com/Victor/payment-engine/internal/core/handler"
 	"net/http"
+	"fmt"
 	"time"
 )
 
@@ -31,6 +33,9 @@ type Engine struct {
 func NewEngine(db *sql.DB) *Engine {
 	repo := repository.NewPostgresRepository(db)
 	reg := registry.NewProviderRegistry()
+	
+	// Adapter Interno (SAGA)
+	reg.Register("SYSTEM_INTERNAL", acl.NewInternalSystemAdapter(repo))
 	
 	// Circuit Breaker Padrão
 	cb := resilience.NewCircuitBreaker(resilience.Config{
@@ -113,4 +118,23 @@ func (e *Engine) ReplayInboxDLQ(ctx context.Context, eventID string) error {
 // ReplayOutboxDLQ resgata um evento do purgatório lógico.
 func (e *Engine) ReplayOutboxDLQ(ctx context.Context, eventID string) error {
 	return e.Repo.ReplayOutboxDLQ(ctx, eventID)
+}
+
+// RotateGatewaySecret dispara a rotação de chaves em um adapter compatível.
+func (e *Engine) RotateGatewaySecret(providerID string, newSecret string, gracePeriod time.Duration) error {
+	adapter, err := e.Registry.Get(providerID)
+	if err != nil {
+		return err
+	}
+
+	type rotatable interface {
+		RotateWebhookSecret(newSecret string, gracePeriod time.Duration)
+	}
+
+	if r, ok := adapter.(rotatable); ok {
+		r.RotateWebhookSecret(newSecret, gracePeriod)
+		return nil
+	}
+
+	return fmt.Errorf("provedor %s não suporta rotação dinâmica", providerID)
 }

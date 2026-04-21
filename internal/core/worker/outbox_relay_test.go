@@ -18,6 +18,8 @@ import (
 
 type mockGateway struct {
 	shouldFail int64 // Atômico
+	refundCalled bool
+	refundErr error
 }
 
 func (m *mockGateway) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) {
@@ -29,11 +31,12 @@ func (m *mockGateway) CreateTransaction(ctx context.Context, transaction *entity
 func (m *mockGateway) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) {
 	return entity.StatusPaid, nil
 }
-func (m *mockGateway) RefundTransaction(ctx context.Context, txID string) error {
+func (m *mockGateway) RefundTransaction(ctx context.Context, txID string, idempotencyKey string) error {
+	m.refundCalled = true
 	if atomic.LoadInt64(&m.shouldFail) == 1 {
 		return errors.New("provider failure")
 	}
-	return nil
+	return m.refundErr
 }
 
 func (m *mockGateway) ValidateWebhook(r *http.Request) (bool, error) { return true, nil }

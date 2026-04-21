@@ -1,7 +1,7 @@
 -- Schema Version 001: Initial Setup for Inbox, Outbox and Transactions
 -- This script contains the DDL for the atomic engine core.
 
-CREATE TABLE IF NOT EXISTS asaas_framework_migrations (
+CREATE TABLE IF NOT EXISTS payment_engine_migrations (
     version int PRIMARY KEY,
     applied_at timestamp DEFAULT now()
 );
@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     retry_count INT NOT NULL DEFAULT 0,
     last_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     processed_at TIMESTAMP,
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);

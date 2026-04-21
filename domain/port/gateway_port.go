@@ -11,7 +11,7 @@ type GatewayAdapter interface {
 	CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error)
 	CreateTransaction(ctx context.Context, transaction *entity.Transaction) (string, error)
 	GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error)
-	RefundTransaction(ctx context.Context, transactionID string) error
+	RefundTransaction(ctx context.Context, transactionID string, idempotencyKey string) error
 
 	// Webhook Methods (Universal ACL)
 	ValidateWebhook(r *http.Request) (bool, error)

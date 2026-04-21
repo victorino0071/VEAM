@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"github.com/Victor/payment-engine/domain/entity"
 	"github.com/Victor/payment-engine/domain/port"
 	"github.com/Victor/payment-engine/domain/registry"
 	"log/slog"
@@ -89,7 +91,11 @@ func (r *OutboxRelay) Start(ctx context.Context) {
 func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 	// PHASE A: Claim (Transação Curta + Commit Imediato com limit dinâmico)
 	events, err := r.repo.ClaimOutboxEvents(ctx, limit)
-	if err != nil || len(events) == 0 {
+	if err != nil {
+		slog.ErrorContext(ctx, "[OutboxRelay] Falha crítica ao reivindicar eventos", "error", err)
+		return 0
+	}
+	if len(events) == 0 {
 		return 0
 	}
 
@@ -130,12 +136,33 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 		} else {
 			switch event.EventType {
 			case "REFUND_STARTED":
-				// Chamada de gateway isolada com Circuit Breaker Reativo
-				err = gateway.RefundTransaction(workerCtx, txID)
+				// Chamada de gateway isolada com Circuit Breaker Reativo, injeta Idempotency Key (event.ID)
+				err = gateway.RefundTransaction(workerCtx, txID, event.ID)
 				r.breaker.RecordResult(workerCtx, err) // Atualiza EWMA e Estado
 				
 				if err != nil {
 					slog.WarnContext(workerCtx, "[OutboxRelay] Falha ao solicitar estorno no Provedor", "error", err, "tx_id", txID)
+					
+					if errors.Is(err, entity.ErrTerminalGatewayRejection) {
+						slog.InfoContext(workerCtx, "[OutboxRelay] Falha Terminal Detectada. Injetando InboxEvent de Compensação (Saga)", "tx_id", txID)
+						compensationEvent := entity.NewInboxEvent(
+							event.ID, // reaproveita ID garantindo atomicidade visual no log
+							txID,
+							"GATEWAY_REFUND_REJECTED",
+							[]byte(txID),
+							map[string]string{
+								"provider_id": "SYSTEM_INTERNAL",
+								"original_outbox_id": event.ID,
+								"error": err.Error(),
+							},
+						)
+						// Insere e encobre erro original (marcando Outbox relayer como completed porque o erro engatou engine de resolução nativa)
+						if inboxErr := r.repo.SaveInboxEvent(ctx, compensationEvent); inboxErr != nil {
+							slog.ErrorContext(workerCtx, "Erro grave ao salvar compensação", "error", inboxErr)
+						} else {
+							err = nil // Absorve falha: fluxo assíncrono agora lida com o Gateway refund rejected no inbox.
+						}
+					}
 				} else {
 					slog.InfoContext(workerCtx, "[OutboxRelay] Estorno solicitado e confirmado pelo Gateway", "tx_id", txID)
 				}
@@ -157,14 +184,14 @@ func (r *OutboxRelay) consumeBatch(ctx context.Context, limit int) int {
 			}
 		} else {
 			if event.RetryCount >= r.maxRetries {
-				if err := r.repo.MoveOutboxToDLQ(ctx, event.ID, err.Error()); err != nil {
-					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (DLQ)", "error", err, "id", event.ID)
+				if repoErr := r.repo.MoveOutboxToDLQ(ctx, event.ID, err.Error()); repoErr != nil {
+					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (DLQ)", "error", repoErr, "id", event.ID)
 				} else {
 					slog.WarnContext(workerCtx, "[OutboxRelay] Outbox Event arquivado na DLQ (Poison Pill)", "id", event.ID, "last_error", err.Error())
 				}
 			} else {
-				if err := r.repo.MarkOutboxFailed(ctx, event.ID, err.Error()); err != nil {
-					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Failed)", "error", err, "id", event.ID)
+				if repoErr := r.repo.MarkOutboxFailed(ctx, event.ID, err.Error()); repoErr != nil {
+					slog.ErrorContext(workerCtx, "[OutboxRelay] Erro na Phase C (Failed)", "error", repoErr, "id", event.ID)
 				}
 			}
 			span.SetAttributes(attribute.String("error.message", err.Error()))

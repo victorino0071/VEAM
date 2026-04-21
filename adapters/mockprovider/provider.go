@@ -96,7 +96,7 @@ func (m *MockConfig) GetTransactionState(ctx context.Context, externalID string)
 	return entity.StatusPending, nil
 }
 
-func (m *MockConfig) RefundTransaction(ctx context.Context, transactionID string) error {
+func (m *MockConfig) RefundTransaction(ctx context.Context, transactionID string, idempotencyKey string) error {
 	return nil
 }
 

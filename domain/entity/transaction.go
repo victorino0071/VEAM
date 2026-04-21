@@ -16,7 +16,8 @@ const (
 	StatusFailed            PaymentStatus = "FAILED"
 	StatusCanceled          PaymentStatus = "CANCELED"
 	StatusRefunded          PaymentStatus = "REFUNDED"
-	StatusRefundInitiated   PaymentStatus = "REFUND_INITIATED"
+	StatusRefundProcessing  PaymentStatus = "REFUND_PROCESSING"
+	StatusRefundFailed      PaymentStatus = "REFUND_FAILED"
 	StatusChargebackPending PaymentStatus = "CHARGEBACK_PENDING"
 	StatusAnomaly           PaymentStatus = "ANOMALY"
 )
@@ -183,7 +184,7 @@ func (t *Transaction) TransitionTo(ctx context.Context, newState PaymentStatus, 
 		eventType = "PAYMENT_CONFIRMED"
 	} else if newState == StatusFailed {
 		eventType = "PAYMENT_FAILED"
-	} else if newState == StatusRefundInitiated {
+	} else if newState == StatusRefundProcessing {
 		eventType = "REFUND_STARTED"
 	}
 
