@@ -39,13 +39,29 @@ func (r *PostgresRepository) SaveInboxEvent(ctx context.Context, event *entity.I
 	}
 
 	query := `
-		INSERT INTO inbox (id, external_id, event_type, payload, metadata)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (external_id) DO UPDATE 
-		SET payload = EXCLUDED.payload, metadata = EXCLUDED.metadata, updated_at = NOW()
-		WHERE inbox.updated_at < NOW();`
-	_, err = r.exec(ctx).ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, metadataJSON)
-	return err
+		INSERT INTO inbox (id, external_id, event_type, payload, metadata, fingerprint)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (external_id) DO NOTHING
+		ON CONFLICT ((metadata->>'provider_id'), fingerprint) DO NOTHING;`
+	
+	// Nota: Postgres não permite múltiplos ON CONFLICT facilmente em versões antigas.
+	// Vamos simplificar para o conflito de negócio (fingerprint) ser o soberano.
+	query = `
+		INSERT INTO inbox (id, external_id, event_type, payload, metadata, fingerprint)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT ((metadata->>'provider_id'), fingerprint) DO NOTHING;`
+
+	result, err := r.exec(ctx).ExecContext(ctx, query, event.ID, event.ExternalID, event.EventType, event.Payload, metadataJSON, event.Fingerprint)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return entity.ErrDuplicateFingerprint
+	}
+
+	return nil
 }
 
 func (r *PostgresRepository) SaveOutboxEvent(ctx context.Context, event *entity.OutboxEvent) error {
@@ -78,7 +94,7 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
-		RETURNING id, external_id, event_type, payload, metadata, status, retry_count, last_error, created_at;`
+		RETURNING id, external_id, fingerprint, event_type, payload, metadata, status, retry_count, last_error, created_at;`
 	
 	rows, err := r.exec(ctx).QueryContext(ctx, query, limit)
 	if err != nil {
@@ -91,7 +107,7 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 		e := &entity.InboxEvent{}
 		var metadataJSON []byte
 		var lastError sql.NullString
-		err := rows.Scan(&e.ID, &e.ExternalID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &lastError, &e.CreatedAt)
+		err := rows.Scan(&e.ID, &e.ExternalID, &e.Fingerprint, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &lastError, &e.CreatedAt)
 		if err != nil {
 			return nil, err
 		}

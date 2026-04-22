@@ -107,3 +107,11 @@ func (m *MockConfig) ValidateWebhook(r *http.Request) (bool, error) {
 func (m *MockConfig) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{}, nil
 }
+
+func (m *MockConfig) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+	return nil, entity.StatusPending, nil
+}
+
+func (m *MockConfig) Fingerprint(payload []byte) (string, error) {
+	return "mock-fingerprint", nil
+}

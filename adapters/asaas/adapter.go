@@ -16,6 +16,7 @@ import (
 	"github.com/victorino0071/VEAM/domain/entity"
 	"github.com/victorino0071/VEAM/domain/port"
 	"github.com/victorino0071/VEAM/internal/core/acl"
+	"github.com/cespare/xxhash/v2"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -245,4 +246,24 @@ func (a *Adapter) TranslatePayload(ctx context.Context, payload []byte) (*entity
 	}
 
 	return tx, acl.MapAsaasStatus(dto.Payment.Status), nil
+}
+
+func (a *Adapter) Fingerprint(payload []byte) (string, error) {
+	var dto acl.WebhookDTO
+	if err := json.Unmarshal(payload, &dto); err != nil {
+		return "", err
+	}
+
+	// Composição estrita para evitar Identidade de Entrega vs Negócio
+	// Ignoramos o ID do evento global (delivery id) e usamos apenas o core financeiro
+	core := fmt.Sprintf("%s|%s|%.2f|%s", 
+		dto.Payment.ID, 
+		dto.Payment.Status, 
+		dto.Payment.Value, 
+		dto.Payment.DueDate,
+	)
+
+	h := xxhash.New()
+	h.Write([]byte(core))
+	return fmt.Sprintf("%016x", h.Sum64()), nil
 }

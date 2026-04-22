@@ -46,6 +46,9 @@ func (m *mockGateway) TranslateWebhook(r *http.Request) (*port.WebhookResponse, 
 func (m *mockGateway) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	return nil, "", nil
 }
+func (m *mockGateway) Fingerprint(payload []byte) (string, error) {
+	return "mock-fingerprint", nil
+}
 
 
 // Mock de repositório focado apenas no Outbox Relay

@@ -21,6 +21,7 @@ import (
 	"github.com/victorino0071/VEAM/domain/port"
 	"github.com/victorino0071/VEAM/internal/core/acl"
 	"github.com/mercadopago/sdk-go/pkg/config"
+	"github.com/cespare/xxhash/v2"
 	"github.com/mercadopago/sdk-go/pkg/payment"
 	"github.com/mercadopago/sdk-go/pkg/refund"
 
@@ -329,4 +330,28 @@ func (a *Adapter) TranslatePayload(ctx context.Context, payload []byte) (*entity
 	}
 
 	return tx, acl.MapMercadoPagoStatus(result.Status), nil
+}
+
+func (a *Adapter) Fingerprint(payload []byte) (string, error) {
+	var evt struct {
+		Action string          `json:"action"`
+		Type   string          `json:"type"`
+		Data   map[string]interface{} `json:"data"`
+	}
+
+	if err := json.Unmarshal(payload, &evt); err != nil {
+		return "", err
+	}
+
+	externalID := ""
+	if idVal, ok := evt.Data["id"]; ok {
+		externalID = fmt.Sprintf("%v", idVal)
+	}
+
+	// Para o MP, o webhook é um sinalizador. O fingerprint é a combinação do recurso + ação.
+	core := fmt.Sprintf("%s|%s|%s", evt.Type, externalID, evt.Action)
+
+	h := xxhash.New()
+	h.Write([]byte(core))
+	return fmt.Sprintf("%016x", h.Sum64()), nil
 }

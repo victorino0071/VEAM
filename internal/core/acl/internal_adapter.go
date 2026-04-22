@@ -6,6 +6,8 @@ import (
 
 	"github.com/victorino0071/VEAM/domain/entity"
 	"github.com/victorino0071/VEAM/domain/port"
+	"github.com/cespare/xxhash/v2"
+	"fmt"
 )
 
 // InternalSystemAdapter é uma porta de segurança para processamento endógeno do motor (Sagas).
@@ -59,4 +61,11 @@ func (a *InternalSystemAdapter) TranslatePayload(ctx context.Context, payload []
 	
 	// Força o rollback (RefundFailed)
 	return tx, entity.StatusRefundFailed, nil
+}
+
+func (a *InternalSystemAdapter) Fingerprint(payload []byte) (string, error) {
+	// Para eventos internos, o próprio payload (ID da transação) é a chave de negócio.
+	h := xxhash.New()
+	h.Write(payload)
+	return fmt.Sprintf("internal-%016x", h.Sum64()), nil
 }

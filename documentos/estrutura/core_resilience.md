@@ -12,3 +12,6 @@ Utilizamos a **Média Móvel Exponencialmente Ponderada (EWMA)** para calcular a
 1.  **CLOSED:** Operação normal. Tráfego flui.
 2.  **OPEN:** Falhas detectadas. O sistema bloqueia requisições externas para proteger o motor e evitar filas infinitas.
 3.  **HALF-OPEN:** Teste de recuperação. Envia uma pequena fração do tráfego para verificar se o provedor se estabilizou.
+
+## 🔄 Deduplicação Semântica (O(1))
+O sistema implementa **Payload Fingerprinting** via `xxhash` para evitar que duplicatas de negócio (mesmo com IDs de entrega diferentes) sejam processadas. Isso protege a FSM de transições redundantes e economiza recursos de processamento.

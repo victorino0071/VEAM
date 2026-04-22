@@ -26,6 +26,7 @@ Este documento é o **Índice Mestre** da biblioteca `github.com/Victor/VEAM`. N
 *   🔗 **[Core: Worker (Asymmetric Scaling)](core_worker.md)**: Motores de background com lógica de retentativa e DLQ.
 *   🔗 **[Core: Repository (Snapshot Hydration)](core_repository.md)**: Persistência física via `SKIP LOCKED` e rebuild via `Snapshot`.
 *   🔗 **[Core: Resilience (Circuit Breaker)](core_resilience.md)**: Blindagem estatística via EWMA.
+*   🔗 **[Core: Deduplication (Fingerprinting)](core_deduplication.md)**: Filtro de ruído semântico O(1).
 *   🔗 **[Core: Telemetry (Observabilidade)](core_telemetry.md)**: Rastreabilidade via OpenTelemetry.
 
 ---
