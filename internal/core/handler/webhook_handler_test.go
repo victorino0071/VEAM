@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Victor/VEAM/domain/entity"
-	"github.com/Victor/VEAM/domain/port"
+	"github.com/victorino0071/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/port"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"

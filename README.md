@@ -1,80 +1,188 @@
-# Asaas Framework - Motor de Pagamentos Industrial
+# ⚡ VEAM: Virtual Engine for Atomic Management
 
-Este projeto é um **Motor de Pagamentos (Payment Engine)** de alta performance e resiliência, construído seguindo os princípios da **Arquitetura Hexagonal**. Ele foi projetado para integrar gateways de pagamento (inicialmente focado no Asaas) com garantias de entrega e processamento confiável.
+[![Go Reference](https://pkg.go.dev/badge/github.com/victorino0071/VEAM.svg)](https://pkg.go.dev/github.com/victorino0071/VEAM)
+[![Go CI](https://github.com/victorino0071/VEAM/actions/workflows/go.yml/badge.svg)](https://github.com/victorino0071/VEAM/actions/workflows/go.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🚀 O que é este projeto?
-
-O framework atua como uma camada intermediária resiliente entre sua aplicação e os provedores de pagamento. Ele resolve problemas comuns em sistemas financeiros, como:
-- Perda de eventos (webhooks) por instabilidade do servidor.
-- Duplicidade de processamento (Idempotência).
-- Falhas de rede ao comunicar com gateways externos.
-- Falta de visibilidade (rastreabilidade) em transações complexas.
+**VEAM** é um motor de pagamentos industrial projetado para sistemas que não podem se dar ao luxo de perder um único centavo. Construído sobre os princípios da **Arquitetura Hexagonal** e do **Transactional Outbox**, o VEAM abstrai a complexidade de gateways de pagamento enquanto garante integridade atômica e resiliência extrema.
 
 ---
 
-## 🛠️ Principais Funcionalidades (Features)
+## 📑 Sumário
 
-### 1. Inbox Pattern (Processamento Confiável de Webhooks)
-O framework não processa webhooks diretamente na requisição HTTP. Em vez disso:
-- **Ingestão**: O webhook é salvo imediatamente no banco de dados (`Inbox`) com status `PENDING`.
-- **Consumo**: Um worker assíncrono processa esses eventos em background, garantindo que nenhum evento seja perdido e permitindo retentativas em caso de falha.
-
-### 2. Outbox Pattern (Eventos de Saída Garantidos)
-Sempre que o sistema precisa notificar o mundo exterior sobre uma mudança de estado:
-- O evento é persistido na tabela `Outbox` na mesma transação atômica da mudança de estado do banco.
-- Um relay busca esses eventos e os despacha, garantindo a entrega *at-least-once*.
-
-### 3. Resiliência com Circuit Breaker
-Implementa o padrão **Circuit Breaker** (Disjuntor) para proteger o sistema contra falhas em cascata. Se o gateway de pagamento (ex: Asaas) estiver instável, o motor "abre o circuito" e evita sobrecarregar o provedor ou degradar a performance da aplicação local.
-
-### 4. Arquitetura Hexagonal (Ports & Adapters)
-Código altamente testável e desacoplado:
-- **Domínio**: Contém as regras de negócio e entidades.
-- **Ports**: Interfaces que definem como o motor interage com o mundo exterior (DB, Gateways).
-- **Adapters**: Implementações concretas de bancos de dados e APIs de gateways.
-
-### 5. Observabilidade (OpenTelemetry)
-Suporte nativo a trace distribuído e métricas. Cada processamento de evento carrega o contexto do trace (W3C Trace Context), permitindo rastrear o caminho de um pagamento desde o recebimento do webhook até a finalização.
-
-### 6. Multi-Provider Registry
-Sistema de registro flexível que permite acoplar múltiplos gateways de pagamento e alternar entre eles ou rodar de forma híbrida.
+- [Início Rápido](#início-rápido)
+  - [Instalação](#instalação)
+  - [Configuração do Banco](#configuração-do-banco)
+  - [Primeiros Passos](#primeiros-passos)
+- [Conceitos Fundamentais](#conceitos-fundamentais)
+  - [Arquitetura Hexagonal](#arquitetura-hexagonal)
+  - [O Padrão Inbox](#o-padrão-inbox)
+  - [O Padrão Outbox](#o-padrão-outbox)
+- [Resiliência Industrial](#resiliência-industrial)
+  - [Exponential Backoff](#exponential-backoff)
+  - [Circuit Breaker](#circuit-breaker)
+  - [Dead Letter Queue (DLQ)](#dead-letter-queue-dlq)
+- [Observabilidade & Tracing](#observabilidade--tracing)
+- [Extensibilidade](#extensibilidade)
+  - [Criando um Adaptador](#criando-um-adaptador)
+- [Manutenção & CLI](#manutenção--cli)
 
 ---
 
-## 💾 Adaptores de Banco de Dados
+## Início Rápido
 
-Atualmente, o framework possui suporte oficial para:
+### Instalação
 
-- **PostgreSQL**:
-  - Utiliza o driver `lib/pq`.
-  - Implementa recursos avançados como `SKIP LOCKED` para concorrência segura em workers.
-  - Suporta tipos de dados específicos como `JSONB` para metadados e `UUID` para identificadores.
-  - Implementa particionamento de tabelas (ex: na `Outbox`) para escalar com grandes volumes de dados.
+O VEAM requer Go 1.26+ e uma instância do PostgreSQL 13+.
 
-> **Nota**: Devido à dependência de recursos específicos como `JSONB` e `PARTITION BY`, o adaptador atual é otimizado para PostgreSQL.
-
----
-
-## 📂 Estrutura do Projeto
-
-- `adapters/`: Implementações concretas (Asaas API, Postgres DB).
-- `domain/`: Núcleo do negócio (Entidades e Interfaces/Ports).
-- `internal/core/`: Lógica central do motor (Serviços e Workers).
-- `cmd/`: Pontos de entrada da aplicação.
-- `engine.go`: Ponto de partida para inicializar o framework.
-
----
-
-## 📊 Fluxo de Dados
-
-```mermaid
-graph LR
-    W[Webhook Externo] --> H[Webhook Handler]
-    H --> DB[(Postgres Inbox)]
-    DB --> C[Inbox Consumer]
-    C --> S[Payment Service]
-    S --> G[Gateway Adapter]
-    S --> OB[(Postgres Outbox)]
-    OB --> R[Outbox Relay]
-    R --> EXT[External Notifications]
+```bash
+go get github.com/victorino0071/VEAM
 ```
+
+### Configuração do Banco
+
+O VEAM utiliza recursos específicos do PostgreSQL (`SKIP LOCKED`, `JSONB`, `PARTITIONS`). Para preparar seu banco:
+
+```bash
+# Compile a ferramenta de migração
+go build -o veam-cli ./cmd/veam-cli
+
+# Execute a migração inicial
+./veam-cli migrate -dsn "postgres://user:pass@localhost:5432/db?sslmode=disable"
+```
+
+### Primeiros Passos
+
+O coração do VEAM é o `Engine`. Ele coordena o registro de provedores e o ciclo de vida dos workers.
+
+```go
+package main
+
+import (
+    "context"
+    "database/sql"
+    "github.com/victorino0071/VEAM"
+    "github.com/victorino0071/VEAM/adapters/asaas"
+    _ "github.com/lib/pq"
+)
+
+func main() {
+    db, _ := sql.Open("postgres", "YOUR_DSN")
+
+    // 1. Instancie o motor
+    engine := veam.NewEngine(db).
+        WithMaxRetries(5).
+        WithTelemetry("payment-service")
+
+    // 2. Registre seus adaptadores
+    engine.RegisterProvider("asaas_prod", asaas.NewAsaasAdapter("KEY", "SECRET"))
+
+    // 3. Suba o motor (Workers assíncronos)
+    ctx := context.Background()
+    engine.Start(ctx)
+    
+    // 4. Exponha o handler de Webhook
+    // Este handler salvará automaticamente na Inbox com Idempotência.
+    http.Handle("/webhooks/asaas", engine.NewWebhookHandler("asaas_prod"))
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+---
+
+## Conceitos Fundamentais
+
+### Arquitetura Hexagonal
+
+O VEAM é dividido em **Core (Domínio)**, **Ports (Interfaces)** e **Adapters (Implementações)**. Isso significa que você pode trocar o gateway de pagamento ou até o banco de dados sem tocar na lógica de negócio central.
+
+### O Padrão Inbox
+
+Ao receber um webhook, o VEAM **não o processa imediatamente**. O evento é salvo na tabela `inbox` com status `PENDING`. 
+- **Vantagem**: Se o processamento falhar ou o sistema reiniciar, o evento não é perdido.
+- **Idempotência**: O VEAM verifica o `external_id` do evento para evitar processar o mesmo webhook duas vezes.
+
+### O Padrão Outbox
+
+Toda mudança de estado no VEAM (ex: pagamento confirmado) gera um evento de saída na tabela `outbox`. Esse evento é salvo **na mesma transação atômica** que a atualização do status da transação.
+- **Garantia**: Nunca haverá um status atualizado no seu banco sem que uma notificação seja gerada para o mundo exterior (e vice-versa).
+
+---
+
+## Resiliência Industrial
+
+### Exponential Backoff
+
+Os workers do VEAM (`InboxConsumer` e `OutboxRelay`) utilizam um algoritmo de backoff inteligente. Se não houver trabalho, o worker entra em repouso progressivo:
+- Inicia em **500ms**.
+- Escala exponencialmente até o limite de **30 segundos**.
+- Retorna imediatamente a **0ms** assim que um novo evento é detectado.
+
+### Circuit Breaker
+
+Para evitar o efeito de "Cascading Failure", cada provedor de pagamento é monitorado por um **Circuit Breaker**. 
+- Se a taxa de erro de um gateway ultrapassa o limite, o circuito se abre.
+- As chamadas futuras falham rapidamente sem sobrecarregar o provedor ou degradar seu sistema.
+- Após um período de "meio-aberto", o VEAM tenta uma requisição de teste para decidir se fecha o circuito.
+
+### Dead Letter Queue (DLQ)
+
+Eventos que falham repetidamente após o número máximo de tentativas (`WithMaxRetries`) são movidos para a **DLQ (Dead Letter Queue)**. 
+- Isso evita que "Poison Pills" (eventos malformatados ou impossíveis de processar) bloqueiem a fila principal.
+- Você pode inspecionar e reprocessar eventos da DLQ manualmente via CLI.
+
+---
+
+## Observabilidade & Tracing
+
+O VEAM implementa **OpenTelemetry** nativamente. Ele propaga o contexto de trace (`W3C TraceContext`) entre camadas:
+
+1.  O Webhook chega com um `trace-id`.
+2.  O `InboxConsumer` recupera esse ID do banco.
+3.  Todo o processamento de domínio e a chamada de saída (Outbox) herdam esse mesmo ID.
+4.  Você pode ver todo o caminho do dinheiro no **Jaeger**, **Honeycomb** ou **Cloud Trace**.
+
+---
+
+## Extensibilidade
+
+### Criando um Adaptador
+
+Adicionar um novo gateway ao VEAM é simples. Você só precisa implementar a interface `port.GatewayAdapter`:
+
+```go
+type GatewayAdapter interface {
+    TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error)
+    VerifyWebhook(r *http.Request) ([]byte, error)
+}
+```
+
+Basta registrar sua implementação no `Engine.RegisterProvider` e o motor cuidará do resto.
+
+---
+
+## Manutenção & CLI
+
+A CLI é sua aliada na operação do motor:
+
+- **Migração**: `veam-cli migrate` garante que seu esquema Postgres esteja sempre atualizado.
+- **Observação**: (Em breve) Comandos para listar eventos pendentes e status do Circuit Breaker.
+
+---
+
+## 🤝 Contribuição
+
+O VEAM é um projeto de código aberto. Se você deseja contribuir com novos adaptadores, correções de bugs ou melhorias na performance:
+
+1.  Leia nosso [CONTRIBUTING.md](CONTRIBUTING.md).
+2.  Garanta que todos os testes passem com `go test ./...`.
+3.  Assine seus commits e envie seu Pull Request!
+
+---
+
+## 📄 Licença
+
+VEAM é software livre distribuído sob a licença **MIT**.
+
+---
+**Criado com paixão por Victor (victorino0071)**

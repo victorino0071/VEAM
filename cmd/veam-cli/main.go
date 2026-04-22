@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
-	"github.com/Victor/VEAM/internal/core/repository/migration"
+	"github.com/victorino0071/VEAM/internal/core/repository/migration"
 )
 
 func main() {

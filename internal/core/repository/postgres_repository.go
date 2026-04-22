@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/Victor/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/entity"
 )
 
 // DBTX abstrai as operações comuns entre *sql.DB e *sql.Tx

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"github.com/Victor/VEAM/domain/entity"
-	"github.com/Victor/VEAM/domain/registry"
+	"github.com/victorino0071/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/registry"
 )
 
 // MockRepository com Isolamento Físico e Sincronização Estrita (RWMutex)

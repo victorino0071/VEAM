@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Victor/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/entity"
 	"github.com/mercadopago/sdk-go/pkg/payment"
 )
 

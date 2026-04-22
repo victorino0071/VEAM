@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
-	"github.com/Victor/VEAM/domain/entity"
-	"github.com/Victor/VEAM/domain/port"
-	"github.com/Victor/VEAM/domain/registry"
+	"github.com/victorino0071/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/port"
+	"github.com/victorino0071/VEAM/domain/registry"
 	"fmt"
 	"log/slog"
 

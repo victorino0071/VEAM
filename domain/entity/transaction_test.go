@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/entity"
 )
 
 // mockPolicy simula uma regra de negócio externa (fraude, limites, etc.)

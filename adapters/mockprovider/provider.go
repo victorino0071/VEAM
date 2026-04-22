@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Victor/VEAM/domain/entity"
-	"github.com/Victor/VEAM/domain/port"
+	"github.com/victorino0071/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/port"
 )
 
 // Response encapsula o resultado de uma operação simulada.

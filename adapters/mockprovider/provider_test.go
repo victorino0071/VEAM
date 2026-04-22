@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/VEAM/adapters/mockprovider"
-	"github.com/Victor/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/adapters/mockprovider"
+	"github.com/victorino0071/VEAM/domain/entity"
 )
 
 func TestMockProvider_ResolutionHierarchy(t *testing.T) {

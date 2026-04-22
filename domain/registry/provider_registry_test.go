@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"github.com/Victor/VEAM/domain/port"
+	"github.com/victorino0071/VEAM/domain/port"
 )
 
 // mockAdapter para testes do Registro

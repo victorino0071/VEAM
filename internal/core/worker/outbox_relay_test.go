@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/VEAM/domain/entity"
-	"github.com/Victor/VEAM/domain/port"
-	"github.com/Victor/VEAM/domain/registry"
-	"github.com/Victor/VEAM/internal/core/resilience"
+	"github.com/victorino0071/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/port"
+	"github.com/victorino0071/VEAM/domain/registry"
+	"github.com/victorino0071/VEAM/internal/core/resilience"
 )
 
 type mockGateway struct {

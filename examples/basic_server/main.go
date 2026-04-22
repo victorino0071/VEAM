@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/Victor/VEAM/domain/entity"
+	"github.com/victorino0071/VEAM/domain/entity"
 
-	veam "github.com/Victor/VEAM"
-	"github.com/Victor/VEAM/adapters/asaas"
-	"github.com/Victor/VEAM/adapters/mercadopago"
+	veam "github.com/victorino0071/VEAM"
+	"github.com/victorino0071/VEAM/adapters/asaas"
+	"github.com/victorino0071/VEAM/adapters/mercadopago"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // Driver Postgres
