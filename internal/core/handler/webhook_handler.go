@@ -83,9 +83,25 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Previne panic silencioso do google/uuid (vamos usar Must)
 	eventUUID := uuid.New().String()
 
-	// 5. Ingestão Cega + Metadata JSONB
+	// 5. Geração de Fingerprint de Negócio (Deduplicação Industrial)
+	fingerprint, err := h.adapter.Fingerprint(body)
+	if err != nil {
+		slog.ErrorContext(ctx, "Erro ao gerar fingerprint do payload", "error", err)
+		http.Error(w, "Erro Interno", http.StatusInternalServerError)
+		return
+	}
+
+	// 6. Ingestão Cega + Metadata JSONB
 	inboxEvent := entity.NewInboxEvent(eventUUID, webhookID, eventType, body, metadata)
+	inboxEvent.Fingerprint = fingerprint
+
 	if err := h.repo.SaveInboxEvent(ctx, inboxEvent); err != nil {
+		if errors.Is(err, entity.ErrDuplicateFingerprint) {
+			slog.InfoContext(ctx, "Evento duplicado detectado (Fingerprint Match)", "fingerprint", fingerprint)
+			w.WriteHeader(http.StatusAccepted)
+			fmt.Fprintf(w, "Evento já processado.")
+			return
+		}
 		slog.ErrorContext(ctx, "Erro ao persistir Inbox", "error", err)
 		http.Error(w, "Erro ao persistir", http.StatusInternalServerError)
 		return

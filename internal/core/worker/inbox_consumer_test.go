@@ -112,6 +112,10 @@ func (m *MockAdapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, 
 	return nil, nil
 }
 
+func (m *MockAdapter) Fingerprint(payload []byte) (string, error) {
+	return "mock-fingerprint", nil
+}
+
 func TestInboxConsumer_ProcessEvent_StatusMapping(t *testing.T) {
 	repo := NewMockRepository()
 	reg := registry.NewProviderRegistry()

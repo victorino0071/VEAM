@@ -1,9 +1,12 @@
 package registry
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/victorino0071/VEAM/domain/entity"
 	"github.com/victorino0071/VEAM/domain/port"
 )
 
@@ -11,6 +14,14 @@ import (
 type mockAdapter struct {
 	port.GatewayAdapter
 	id string
+}
+
+func (m *mockAdapter) Fingerprint(payload []byte) (string, error) {
+	return "mock", nil
+}
+
+func (m *mockAdapter) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+	return nil, "", nil
 }
 
 func TestProviderRegistry_Concurrency_StartingGun(t *testing.T) {

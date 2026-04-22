@@ -15,10 +15,14 @@ import (
 )
 
 type mockHandlerRepo struct {
-	lastEvent *entity.InboxEvent
+	lastEvent  *entity.InboxEvent
+	forceError error
 }
 
 func (m *mockHandlerRepo) SaveInboxEvent(ctx context.Context, event *entity.InboxEvent) error {
+	if m.forceError != nil {
+		return m.forceError
+	}
 	m.lastEvent = event
 	return nil
 }
@@ -55,6 +59,9 @@ func (m *mockHandlerAdapter) TranslateWebhook(r *http.Request) (*port.WebhookRes
 }
 func (m *mockHandlerAdapter) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	return nil, "", nil
+}
+func (m *mockHandlerAdapter) Fingerprint(payload []byte) (string, error) {
+	return "static-fingerprint", nil
 }
 
 
@@ -100,5 +107,35 @@ func TestWebhookHandler_OTel_Trace_Propagation(t *testing.T) {
 
 	if repo.lastEvent.Metadata["provider_id"] != "test-provider" {
 		t.Errorf("ProviderID incorreto: %s", repo.lastEvent.Metadata["provider_id"])
+	}
+}
+
+func TestWebhookHandler_Fingerprint_Deduplication(t *testing.T) {
+	repo := &mockHandlerRepo{}
+	adapter := &mockHandlerAdapter{}
+	h := NewWebhookHandler(repo, adapter, "test-provider")
+
+	// 1. Primeira Ingestão (Sucesso)
+	req1 := httptest.NewRequest("POST", "/webhooks/asaas", strings.NewReader(`{"status":"paid"}`))
+	rr1 := httptest.NewRecorder()
+	h.ServeHTTP(rr1, req1)
+
+	if rr1.Code != http.StatusAccepted {
+		t.Errorf("Esperado status 202 na primeira ingestão, obtido %d", rr1.Code)
+	}
+
+	// 2. Segunda Ingestão (Mesmo Fingerprint - Colisão no Repo)
+	repo.forceError = entity.ErrDuplicateFingerprint
+	req2 := httptest.NewRequest("POST", "/webhooks/asaas", strings.NewReader(`{"status":"paid"}`))
+	rr2 := httptest.NewRecorder()
+	h.ServeHTTP(rr2, req2)
+
+	// Validação Crucial: Deve retornar 202 Accepted (Silenciamento) e não 500 ou 409.
+	if rr2.Code != http.StatusAccepted {
+		t.Errorf("Esperado status 202 na detecção de duplicata (silenciamento), obtido %d", rr2.Code)
+	}
+
+	if !strings.Contains(rr2.Body.String(), "Evento já processado") {
+		t.Errorf("Mensagem de corpo inesperada: %s", rr2.Body.String())
 	}
 }

@@ -17,6 +17,7 @@ type GatewayAdapter interface {
 	ValidateWebhook(r *http.Request) (bool, error)
 	TranslateWebhook(r *http.Request) (*WebhookResponse, error)
 	TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error)
+	Fingerprint(payload []byte) (string, error)
 }
 
 // WebhookResponse normaliza o que vem da rua para o que o motor entende.
