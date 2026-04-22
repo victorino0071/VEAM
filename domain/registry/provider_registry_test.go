@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/port"
 )
 
 // mockAdapter para testes do Registro

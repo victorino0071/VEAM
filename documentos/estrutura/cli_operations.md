@@ -1,7 +1,7 @@
 # Operações: Engine CLI
 **Caminho:** `cmd/payment-cli`
 
-O `payment-engine-cli` é uma ferramenta administrativa independente projetada para gerenciar o estado físico do banco de dados e tarefas de manutenção fora do ciclo de vida da aplicação principal.
+O `VEAM-cli` é uma ferramenta administrativa independente projetada para gerenciar o estado físico do banco de dados e tarefas de manutenção fora do ciclo de vida da aplicação principal.
 
 ---
 
@@ -17,10 +17,10 @@ Sincroniza o banco de dados com as versões embutidas no motor.
 
 ```bash
 # Exemplo de uso via DSN explicito
-./payment-engine-cli migrate -dsn "postgres://user:pass@localhost:5432/db"
+./VEAM-cli migrate -dsn "postgres://user:pass@localhost:5432/db"
 
 # Exemplo usando variável de ambiente (DATABASE_URL)
-DATABASE_URL="..." ./payment-engine-cli migrate
+DATABASE_URL="..." ./VEAM-cli migrate
 ```
 
 ## 🛠️ Extensibilidade

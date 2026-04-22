@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/service"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/service"
 )
 
 // MockRepository com RWMutex e Isolamento Físico via Snapshots
@@ -68,14 +68,18 @@ func (m *MockRepository) ClaimInboxEvents(ctx context.Context, limit int) ([]*en
 func (m *MockRepository) ClaimOutboxEvents(ctx context.Context, limit int) ([]*entity.OutboxEvent, error) {
 	return nil, nil
 }
-func (m *MockRepository) MarkInboxFailed(ctx context.Context, id string) error     { return nil }
+func (m *MockRepository) MarkInboxFailed(ctx context.Context, id string, errStr string) error     { return nil }
+func (m *MockRepository) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
 func (m *MockRepository) MarkOutboxCompleted(ctx context.Context, id string) error { return nil }
-func (m *MockRepository) MarkOutboxFailed(ctx context.Context, id string) error    { return nil }
+func (m *MockRepository) MarkOutboxFailed(ctx context.Context, id string, errStr string) error    { return nil }
+func (m *MockRepository) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
+func (m *MockRepository) ReplayInboxDLQ(ctx context.Context, id string) error { return nil }
+func (m *MockRepository) ReplayOutboxDLQ(ctx context.Context, id string) error { return nil }
 
 // MockAdapter para testar a inversão de dependência (Arquitetura Hexagonal)
 type MockAdapter struct{}
 
-func (m *MockAdapter) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+func (m *MockAdapter) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	var data struct {
 		ID     string  `json:"id" `
 		Status string  `json:"status" `
@@ -100,7 +104,9 @@ func (m *MockAdapter) CreateTransaction(ctx context.Context, tx *entity.Transact
 func (m *MockAdapter) GetTransactionState(ctx context.Context, id string) (entity.PaymentStatus, error) {
 	return "", nil
 }
-func (m *MockAdapter) RefundTransaction(ctx context.Context, id string) error { return nil }
+func (m *MockAdapter) RefundTransaction(ctx context.Context, transactionID string, idempotencyKey string) error {
+	return nil
+}
 func (m *MockAdapter) ValidateWebhook(r *http.Request) (bool, error)       { return true, nil }
 func (m *MockAdapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return nil, nil
@@ -110,7 +116,7 @@ func TestInboxConsumer_ProcessEvent_StatusMapping(t *testing.T) {
 	repo := NewMockRepository()
 	reg := registry.NewProviderRegistry()
 	svc := service.NewPaymentService(repo, reg)
-	consumer := NewInboxConsumer(repo, svc, reg)
+	consumer := NewInboxConsumer(repo, svc, reg, 5)
 
 	// REGISTRO OBRIGATÓRIO (Prova de Desacoplamento Hexagonal)
 	reg.Register("asaas", &MockAdapter{})
@@ -133,7 +139,7 @@ func TestInboxConsumer_ProcessEvent_StatusMapping(t *testing.T) {
 			},
 		}
 
-		success := consumer.processEvent(ctx, event)
+		success, _ := consumer.processEvent(ctx, event)
 		if !success {
 			t.Fatal("Esperado sucesso no processamento")
 		}
@@ -170,7 +176,7 @@ func TestInboxConsumer_ProcessEvent_StatusMapping(t *testing.T) {
 			},
 		}
 
-		success := consumer.processEvent(ctx, event)
+		success, _ := consumer.processEvent(ctx, event)
 		if !success {
 			t.Fatal("Esperado sucesso")
 		}
@@ -191,7 +197,7 @@ func TestInboxConsumer_ProcessEvent_StatusMapping(t *testing.T) {
 			},
 		}
 
-		success := consumer.processEvent(ctx, event)
+		success, _ := consumer.processEvent(ctx, event)
 		if success {
 			t.Error("Deveria ter falhado pois o adaptador stripe não existe no registro")
 		}

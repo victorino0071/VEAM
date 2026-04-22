@@ -9,16 +9,21 @@ import (
 
 	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
-	"github.com/Victor/payment-engine/internal/core/repository/migration"
+	"github.com/Victor/VEAM/internal/core/repository/migration"
 )
 
 func main() {
+	// Carrega o .env explicitamente
 	_ = godotenv.Load()
+	
 	migrateCmd := flag.NewFlagSet("migrate", flag.ExitOnError)
-	dsn := migrateCmd.String("dsn", os.Getenv("DATABASE_URL"), "Postgres DSN (ou use DATABASE_URL env)")
+	
+	// Prioriza DATABASE_URL do ambiente se o flag não for passado
+	defaultDSN := os.Getenv("DATABASE_URL")
+	dsn := migrateCmd.String("dsn", defaultDSN, "Postgres DSN (ou use DATABASE_URL env)")
 
 	if len(os.Args) < 2 {
-		fmt.Println("Uso: payment-engine-cli <comando> [opções]")
+		fmt.Println("Uso: VEAM-cli <comando> [opções]")
 		fmt.Println("Comandos disponíveis: migrate")
 		os.Exit(1)
 	}

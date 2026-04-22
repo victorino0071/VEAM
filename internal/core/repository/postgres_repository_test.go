@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/internal/core/repository"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/internal/core/repository"
 )
 
 // TestPostgresRepository_ACID prova matematicamente que a atomicidade e 

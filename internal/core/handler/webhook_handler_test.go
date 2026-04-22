@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -26,9 +26,13 @@ func (m *mockHandlerRepo) SaveOutboxEvent(ctx context.Context, event *entity.Out
 func (m *mockHandlerRepo) ClaimInboxEvents(ctx context.Context, limit int) ([]*entity.InboxEvent, error) { return nil, nil }
 func (m *mockHandlerRepo) ClaimOutboxEvents(ctx context.Context, limit int) ([]*entity.OutboxEvent, error) { return nil, nil }
 func (m *mockHandlerRepo) MarkInboxCompleted(ctx context.Context, id string) error { return nil }
-func (m *mockHandlerRepo) MarkInboxFailed(ctx context.Context, id string) error    { return nil }
+func (m *mockHandlerRepo) MarkInboxFailed(ctx context.Context, id string, errStr string) error    { return nil }
+func (m *mockHandlerRepo) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
 func (m *mockHandlerRepo) MarkOutboxCompleted(ctx context.Context, id string) error { return nil }
-func (m *mockHandlerRepo) MarkOutboxFailed(ctx context.Context, id string) error    { return nil }
+func (m *mockHandlerRepo) MarkOutboxFailed(ctx context.Context, id string, errStr string) error    { return nil }
+func (m *mockHandlerRepo) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
+func (m *mockHandlerRepo) ReplayInboxDLQ(ctx context.Context, id string) error { return nil }
+func (m *mockHandlerRepo) ReplayOutboxDLQ(ctx context.Context, id string) error { return nil }
 func (m *mockHandlerRepo) GetTransactionByID(ctx context.Context, id string) (*entity.Transaction, error) { return nil, nil }
 func (m *mockHandlerRepo) SaveTransaction(ctx context.Context, tx *entity.Transaction) error { return nil }
 func (m *mockHandlerRepo) ExecuteInTransaction(ctx context.Context, fn func(ctx context.Context) error) error { return fn(ctx) }
@@ -38,7 +42,9 @@ type mockHandlerAdapter struct{}
 func (m *mockHandlerAdapter) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) { return "", nil }
 func (m *mockHandlerAdapter) CreateTransaction(ctx context.Context, transaction *entity.Transaction) (string, error) { return "", nil }
 func (m *mockHandlerAdapter) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) { return "", nil }
-func (m *mockHandlerAdapter) RefundTransaction(ctx context.Context, transactionID string) error { return nil }
+func (m *mockHandlerAdapter) RefundTransaction(ctx context.Context, txID string, idempotencyKey string) error {
+	return nil
+}
 func (m *mockHandlerAdapter) ValidateWebhook(r *http.Request) (bool, error) { return true, nil }
 func (m *mockHandlerAdapter) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{
@@ -47,7 +53,7 @@ func (m *mockHandlerAdapter) TranslateWebhook(r *http.Request) (*port.WebhookRes
 		Payload:    []byte(`{"status":"paid"}`),
 	}, nil
 }
-func (m *mockHandlerAdapter) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+func (m *mockHandlerAdapter) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	return nil, "", nil
 }
 

@@ -31,7 +31,11 @@ func (p *DefaultTransitionPolicy) Evaluate(ctx context.Context, tx *Transaction,
 			return nil
 		}
 	case StatusPaid, StatusReceived, StatusConfirmed:
-		if targetState == StatusRefundInitiated {
+		if targetState == StatusRefundProcessing {
+			return nil
+		}
+	case StatusRefundProcessing:
+		if targetState == StatusRefunded || targetState == StatusRefundFailed {
 			return nil
 		}
 	}

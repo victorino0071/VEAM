@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/VEAM/domain/entity"
 )
 
 // DBTX abstrai as operações comuns entre *sql.DB e *sql.Tx
@@ -64,7 +64,7 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 		UPDATE inbox
 		SET status = 'PROCESSING',
 			updated_at = NOW(),
-			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa (evita loop infinito de Poison Pills)
+			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa
 			retry_count = CASE WHEN status = 'PROCESSING' THEN retry_count + 1 ELSE retry_count END
 		WHERE id IN (
 			SELECT id FROM inbox
@@ -73,12 +73,12 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 				status = 'PENDING'
 				OR 
 				-- Fluxo de Autocura (Resgate de Órfãos)
-				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES' AND retry_count < 4)
+				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES')
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
-		RETURNING id, external_id, event_type, payload, metadata, status, retry_count, created_at;`
+		RETURNING id, external_id, event_type, payload, metadata, status, retry_count, last_error, created_at;`
 	
 	rows, err := r.exec(ctx).QueryContext(ctx, query, limit)
 	if err != nil {
@@ -90,9 +90,13 @@ func (r *PostgresRepository) ClaimInboxEvents(ctx context.Context, limit int) ([
 	for rows.Next() {
 		e := &entity.InboxEvent{}
 		var metadataJSON []byte
-		err := rows.Scan(&e.ID, &e.ExternalID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &e.CreatedAt)
+		var lastError sql.NullString
+		err := rows.Scan(&e.ID, &e.ExternalID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &lastError, &e.CreatedAt)
 		if err != nil {
 			return nil, err
+		}
+		if lastError.Valid {
+			e.LastError = &lastError.String
 		}
 		if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
 			return nil, err
@@ -107,7 +111,7 @@ func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) (
 		UPDATE outbox
 		SET status = 'PROCESSING',
 			updated_at = NOW(),
-			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa (evita loop infinito de Poison Pills)
+			-- Punição: Se está sendo resgatado do limbo, conta como uma tentativa
 			retry_count = CASE WHEN status = 'PROCESSING' THEN retry_count + 1 ELSE retry_count END
 		WHERE id IN (
 			SELECT id FROM outbox
@@ -116,12 +120,12 @@ func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) (
 				(status = 'PENDING' AND created_at > NOW() - INTERVAL '48 HOURS')
 				OR 
 				-- Fluxo de Autocura (Resgate de Órfãos)
-				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES' AND retry_count < 4)
+				(status = 'PROCESSING' AND updated_at < NOW() - INTERVAL '5 MINUTES')
 			ORDER BY created_at ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT $1
 		)
-		RETURNING id, event_type, payload, metadata, status, retry_count, created_at;`
+		RETURNING id, event_type, payload, metadata, status, retry_count, last_error, created_at;`
 
 	rows, err := r.exec(ctx).QueryContext(ctx, query, limit)
 	if err != nil {
@@ -133,9 +137,13 @@ func (r *PostgresRepository) ClaimOutboxEvents(ctx context.Context, limit int) (
 	for rows.Next() {
 		e := &entity.OutboxEvent{}
 		var metadataJSON []byte
-		err := rows.Scan(&e.ID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &e.CreatedAt)
+		var lastError sql.NullString
+		err := rows.Scan(&e.ID, &e.EventType, &e.Payload, &metadataJSON, &e.Status, &e.RetryCount, &lastError, &e.CreatedAt)
 		if err != nil {
 			return nil, err
+		}
+		if lastError.Valid {
+			e.LastError = &lastError.String
 		}
 		if err := json.Unmarshal(metadataJSON, &e.Metadata); err != nil {
 			return nil, err
@@ -151,14 +159,26 @@ func (r *PostgresRepository) MarkInboxCompleted(ctx context.Context, id string) 
 	return err
 }
 
-func (r *PostgresRepository) MarkInboxFailed(ctx context.Context, id string) error {
+func (r *PostgresRepository) MarkInboxFailed(ctx context.Context, id string, errStr string) error {
 	query := `
 		UPDATE inbox
-		SET status = CASE WHEN retry_count >= 4 THEN 'DLQ' ELSE 'PENDING' END,
+		SET status = 'PENDING',
 			retry_count = retry_count + 1,
+			last_error = $2,
 			updated_at = NOW()
 		WHERE id = $1`
-	_, err := r.exec(ctx).ExecContext(ctx, query, id)
+	_, err := r.exec(ctx).ExecContext(ctx, query, id, errStr)
+	return err
+}
+
+func (r *PostgresRepository) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error {
+	query := `
+		UPDATE inbox
+		SET status = 'DLQ',
+			last_error = $2,
+			updated_at = NOW()
+		WHERE id = $1`
+	_, err := r.exec(ctx).ExecContext(ctx, query, id, errStr)
 	return err
 }
 
@@ -168,8 +188,26 @@ func (r *PostgresRepository) MarkOutboxCompleted(ctx context.Context, id string)
 	return err
 }
 
-func (r *PostgresRepository) MarkOutboxFailed(ctx context.Context, id string) error {
-	query := `UPDATE outbox SET status = 'FAILED', retry_count = retry_count + 1 WHERE id = $1`
+func (r *PostgresRepository) MarkOutboxFailed(ctx context.Context, id string, errStr string) error {
+	query := `UPDATE outbox SET status = 'PENDING', retry_count = retry_count + 1, last_error = $2, updated_at = NOW() WHERE id = $1`
+	_, err := r.exec(ctx).ExecContext(ctx, query, id, errStr)
+	return err
+}
+
+func (r *PostgresRepository) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error {
+	query := `UPDATE outbox SET status = 'DLQ', last_error = $2, updated_at = NOW() WHERE id = $1`
+	_, err := r.exec(ctx).ExecContext(ctx, query, id, errStr)
+	return err
+}
+
+func (r *PostgresRepository) ReplayInboxDLQ(ctx context.Context, id string) error {
+	query := `UPDATE inbox SET status = 'PENDING', retry_count = 0, last_error = NULL, updated_at = NOW() WHERE id = $1 AND status = 'DLQ'`
+	_, err := r.exec(ctx).ExecContext(ctx, query, id)
+	return err
+}
+
+func (r *PostgresRepository) ReplayOutboxDLQ(ctx context.Context, id string) error {
+	query := `UPDATE outbox SET status = 'PENDING', retry_count = 0, last_error = NULL, updated_at = NOW() WHERE id = $1 AND status = 'DLQ'`
 	_, err := r.exec(ctx).ExecContext(ctx, query, id)
 	return err
 }

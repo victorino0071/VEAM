@@ -1,8 +1,9 @@
 package handler
 
 import (
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,9 @@ func NewWebhookHandler(repo port.Repository, adapter port.GatewayAdapter, provid
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 0. Prevenção Absoluta contra OOM Kill
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576) // Limite rígido de 1 MB
+
 	// 1. Inicia Rastreamento (OpenTelemetry) - Extraindo do Header primeiro
 	propagator := otel.GetTextMapPropagator()
 	ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
@@ -47,8 +51,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Verificação de Autorização Delegada (Universal ACL)
 	ok, err := h.adapter.ValidateWebhook(r)
-	if err != nil || !ok {
-		slog.WarnContext(ctx, "Tentativa de acesso não autorizada ou falha na validação", "error", err)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) || err.Error() == "http: request body too large" {
+			slog.WarnContext(ctx, "Payload gigantesco abortado (Proteção OOM)", "error", err)
+			http.Error(w, "Payload Too Large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		slog.WarnContext(ctx, "Falha interna ou estrutural na validação do Webhook", "error", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !ok {
+		slog.WarnContext(ctx, "Tentativa de acesso não autorizada (Assinatura Inválida)")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

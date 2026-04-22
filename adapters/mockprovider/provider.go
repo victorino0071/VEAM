@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
 )
 
 // Response encapsula o resultado de uma operação simulada.
@@ -96,7 +96,7 @@ func (m *MockConfig) GetTransactionState(ctx context.Context, externalID string)
 	return entity.StatusPending, nil
 }
 
-func (m *MockConfig) RefundTransaction(ctx context.Context, transactionID string) error {
+func (m *MockConfig) RefundTransaction(ctx context.Context, transactionID string, idempotencyKey string) error {
 	return nil
 }
 

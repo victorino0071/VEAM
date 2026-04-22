@@ -1,17 +1,19 @@
-package paymentengine
+package veam
 
 import (
 	"context"
 	"database/sql"
-	"github.com/Victor/payment-engine/internal/core/service"
-	"github.com/Victor/payment-engine/internal/core/worker"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/repository"
-	"github.com/Victor/payment-engine/internal/core/resilience"
-	"github.com/Victor/payment-engine/internal/core/telemetry"
-	"github.com/Victor/payment-engine/internal/core/handler"
+	"github.com/Victor/VEAM/internal/core/service"
+	"github.com/Victor/VEAM/internal/core/worker"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/repository"
+	"github.com/Victor/VEAM/internal/core/resilience"
+	"github.com/Victor/VEAM/internal/core/telemetry"
+	"github.com/Victor/VEAM/internal/core/acl"
+	"github.com/Victor/VEAM/internal/core/handler"
 	"net/http"
+	"fmt"
 	"time"
 )
 
@@ -21,15 +23,19 @@ type Engine struct {
 	Registry *registry.ProviderRegistry
 	Service  *service.PaymentService
 	Consumer *worker.InboxConsumer
-	Relay    *worker.OutboxRelay
-	Breaker  port.CircuitBreaker
-	db       *sql.DB
+	Relay      *worker.OutboxRelay
+	Breaker    port.CircuitBreaker
+	db         *sql.DB
+	MaxRetries int
 }
 
 // NewEngine inicializa a fundação do motor sobre uma conexão Postgres.
 func NewEngine(db *sql.DB) *Engine {
 	repo := repository.NewPostgresRepository(db)
 	reg := registry.NewProviderRegistry()
+	
+	// Adapter Interno (SAGA)
+	reg.Register("SYSTEM_INTERNAL", acl.NewInternalSystemAdapter(repo))
 	
 	// Circuit Breaker Padrão
 	cb := resilience.NewCircuitBreaker(resilience.Config{
@@ -40,18 +46,27 @@ func NewEngine(db *sql.DB) *Engine {
 	})
 
 	svc := service.NewPaymentService(repo, reg)
-	consumer := worker.NewInboxConsumer(repo, svc, reg)
-	relay := worker.NewOutboxRelay(repo, reg, cb)
+	consumer := worker.NewInboxConsumer(repo, svc, reg, 5) // Defaults to 5
+	relay := worker.NewOutboxRelay(repo, reg, cb, 5) // Defaults to 5
 
 	return &Engine{
 		Repo:     repo,
 		Registry: reg,
 		Service:  svc,
 		Consumer: consumer,
-		Relay:    relay,
-		Breaker:  cb,
-		db:       db,
+		Relay:      relay,
+		Breaker:    cb,
+		db:         db,
+		MaxRetries: 5,
 	}
+}
+
+// WithMaxRetries define o limite de tentativas antes do DLQ
+func (e *Engine) WithMaxRetries(limit int) *Engine {
+	e.MaxRetries = limit
+	e.Consumer.SetMaxRetries(limit)
+	e.Relay.SetMaxRetries(limit)
+	return e
 }
 
 // WithTelemetry atacha a observabilidade no motor.
@@ -93,4 +108,33 @@ func (e *Engine) RelayOutbox(ctx context.Context) error {
 func (e *Engine) Start(ctx context.Context) {
 	go e.ConsumeInbox(ctx)
 	go e.RelayOutbox(ctx)
+}
+
+// ReplayInboxDLQ resgata um evento do purgatório lógico.
+func (e *Engine) ReplayInboxDLQ(ctx context.Context, eventID string) error {
+	return e.Repo.ReplayInboxDLQ(ctx, eventID)
+}
+
+// ReplayOutboxDLQ resgata um evento do purgatório lógico.
+func (e *Engine) ReplayOutboxDLQ(ctx context.Context, eventID string) error {
+	return e.Repo.ReplayOutboxDLQ(ctx, eventID)
+}
+
+// RotateGatewaySecret dispara a rotação de chaves em um adapter compatível.
+func (e *Engine) RotateGatewaySecret(providerID string, newSecret string, gracePeriod time.Duration) error {
+	adapter, err := e.Registry.Get(providerID)
+	if err != nil {
+		return err
+	}
+
+	type rotatable interface {
+		RotateWebhookSecret(newSecret string, gracePeriod time.Duration)
+	}
+
+	if r, ok := adapter.(rotatable); ok {
+		r.RotateWebhookSecret(newSecret, gracePeriod)
+		return nil
+	}
+
+	return fmt.Errorf("provedor %s não suporta rotação dinâmica", providerID)
 }

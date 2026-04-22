@@ -10,14 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
-	"github.com/Victor/payment-engine/domain/port"
-	"github.com/Victor/payment-engine/domain/registry"
-	"github.com/Victor/payment-engine/internal/core/resilience"
+	"github.com/Victor/VEAM/domain/entity"
+	"github.com/Victor/VEAM/domain/port"
+	"github.com/Victor/VEAM/domain/registry"
+	"github.com/Victor/VEAM/internal/core/resilience"
 )
 
 type mockGateway struct {
 	shouldFail int64 // Atômico
+	refundCalled bool
+	refundErr error
 }
 
 func (m *mockGateway) CreateCustomer(ctx context.Context, customer *entity.Customer) (string, error) {
@@ -29,18 +31,19 @@ func (m *mockGateway) CreateTransaction(ctx context.Context, transaction *entity
 func (m *mockGateway) GetTransactionState(ctx context.Context, externalID string) (entity.PaymentStatus, error) {
 	return entity.StatusPaid, nil
 }
-func (m *mockGateway) RefundTransaction(ctx context.Context, txID string) error {
+func (m *mockGateway) RefundTransaction(ctx context.Context, txID string, idempotencyKey string) error {
+	m.refundCalled = true
 	if atomic.LoadInt64(&m.shouldFail) == 1 {
 		return errors.New("provider failure")
 	}
-	return nil
+	return m.refundErr
 }
 
 func (m *mockGateway) ValidateWebhook(r *http.Request) (bool, error) { return true, nil }
 func (m *mockGateway) TranslateWebhook(r *http.Request) (*port.WebhookResponse, error) {
 	return &port.WebhookResponse{ExternalID: "ext-1", EventType: "PAYMENT_RECEIVED", Payload: []byte("{}")}, nil
 }
-func (m *mockGateway) TranslatePayload(payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
+func (m *mockGateway) TranslatePayload(ctx context.Context, payload []byte) (*entity.Transaction, entity.PaymentStatus, error) {
 	return nil, "", nil
 }
 
@@ -81,7 +84,10 @@ func (m *mockRelayRepo) ClaimOutboxEvents(ctx context.Context, limit int) ([]*en
 }
 
 func (m *mockRelayRepo) MarkInboxCompleted(ctx context.Context, id string) error { return nil }
-func (m *mockRelayRepo) MarkInboxFailed(ctx context.Context, id string) error    { return nil }
+func (m *mockRelayRepo) MarkInboxFailed(ctx context.Context, id string, errStr string) error    { return nil }
+func (m *mockRelayRepo) MoveInboxToDLQ(ctx context.Context, id string, errStr string) error { return nil }
+func (m *mockRelayRepo) ReplayInboxDLQ(ctx context.Context, id string) error { return nil }
+func (m *mockRelayRepo) ReplayOutboxDLQ(ctx context.Context, id string) error { return nil }
 
 func (m *mockRelayRepo) MarkOutboxCompleted(ctx context.Context, id string) error {
 	m.mu.Lock()
@@ -90,7 +96,14 @@ func (m *mockRelayRepo) MarkOutboxCompleted(ctx context.Context, id string) erro
 	return nil
 }
 
-func (m *mockRelayRepo) MarkOutboxFailed(ctx context.Context, id string) error {
+func (m *mockRelayRepo) MarkOutboxFailed(ctx context.Context, id string, errStr string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.failedIDs = append(m.failedIDs, id)
+	return nil
+}
+
+func (m *mockRelayRepo) MoveOutboxToDLQ(ctx context.Context, id string, errStr string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failedIDs = append(m.failedIDs, id)
@@ -126,7 +139,7 @@ func TestOutboxRelay_Sociable_Resilience(t *testing.T) {
 		}
 	}
 
-	relay := NewOutboxRelay(repo, reg, breaker)
+	relay := NewOutboxRelay(repo, reg, breaker, 5)
 
 	// --- CENÁRIO A: Backpressure (Shrinking Batch) ---
 	// Forçamos uma falha manual no breaker para elevar P(F)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Victor/payment-engine/domain/entity"
+	"github.com/Victor/VEAM/domain/entity"
 )
 
 // mockPolicy simula uma regra de negócio externa (fraude, limites, etc.)
